@@ -1,0 +1,9 @@
+*
+!/.gitignore
+!/README.md
+!/setup.ps1
+!/agent/
+/agent/*
+!/agent/extensions/
+/agent/extensions/*
+!/agent/extensions/codex-settings.ts
