@@ -6,4 +6,4 @@
 /agent/*
 !/agent/extensions/
 /agent/extensions/*
-!/agent/extensions/codex-settings.ts
+!/agent/extensions/agents-settings.ts
