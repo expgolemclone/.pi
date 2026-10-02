@@ -5,34 +5,36 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 
 const agentsDir = join(homedir(), ".agents");
 const instructionsPath = join(agentsDir, "AGENTS.md");
-const keys = ["approval_policy", "sandbox_mode", "model", "model_reasoning_effort", "service_tier"];
+const keys = ["provider", "model", "thinkingLevel", "serviceTier"];
 
-function config() {
-  const settings = JSON.parse(readFileSync(join(agentsDir, "settings.json"), "utf8").replace(/^\uFEFF/, ""));
+export function parseSettings(raw: string) {
+  const settings = JSON.parse(raw.replace(/^\uFEFF/, ""));
   if (!settings || typeof settings !== "object" || Array.isArray(settings) ||
       Object.keys(settings).length !== keys.length || keys.some((key) => typeof settings[key] !== "string" || !settings[key])) {
-    throw new Error(".agents/settings.json must contain exactly the five shared string settings.");
+    throw new Error(".agents/settings.json must contain exactly provider, model, thinkingLevel and serviceTier strings.");
   }
-  if (settings.approval_policy !== "never" || settings.sandbox_mode !== "danger-full-access") {
-    throw new Error("Shared permissions changed. Pi needs a matching isolation/approval design before use.");
+  if (settings.provider !== "openai") throw new Error("This configuration requires the OpenAI provider.");
+  if (!["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(settings.thinkingLevel)) {
+    throw new Error(`Unsupported thinking level: ${settings.thinkingLevel}`);
   }
-  if (!["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(settings.model_reasoning_effort)) {
-    throw new Error(`Unsupported reasoning effort: ${settings.model_reasoning_effort}`);
-  }
-  if (!["fast", "priority", "auto", "default", "flex"].includes(settings.service_tier)) {
-    throw new Error(`Unsupported service tier: ${settings.service_tier}`);
+  if (!["priority", "auto", "default", "flex"].includes(settings.serviceTier)) {
+    throw new Error(`Unsupported service tier: ${settings.serviceTier}`);
   }
   return settings;
+}
+
+function config() {
+  return parseSettings(readFileSync(join(agentsDir, "settings.json"), "utf8"));
 }
 
 export default function (pi: ExtensionAPI) {
   async function sync(ctx: ExtensionContext) {
     const shared = config();
-    const model = ctx.modelRegistry.find("openai", shared.model);
+    const model = ctx.modelRegistry.find(shared.provider, shared.model);
     if (!model || !ctx.modelRegistry.isUsingOAuth(model)) throw new Error("The shared model requires Pi's OpenAI ChatGPT OAuth login.");
     if (!await pi.setModel(model)) throw new Error("Could not select the shared model in Pi.");
-    pi.setThinkingLevel(shared.model_reasoning_effort);
-    if (pi.getThinkingLevel() !== shared.model_reasoning_effort) throw new Error("Pi cannot use the shared reasoning effort.");
+    pi.setThinkingLevel(shared.thinkingLevel);
+    if (pi.getThinkingLevel() !== shared.thinkingLevel) throw new Error("Pi cannot use the configured thinking level.");
   }
 
   pi.on("session_start", async (_event, ctx) => { await sync(ctx); });
@@ -57,8 +59,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("before_provider_request", (event, ctx) => {
     if (ctx.model?.provider === "openai") {
-      const tier = config().service_tier;
-      return { ...(event.payload as Record<string, unknown>), service_tier: tier === "fast" ? "priority" : tier };
+      return { ...(event.payload as Record<string, unknown>), service_tier: config().serviceTier };
     }
   });
 }

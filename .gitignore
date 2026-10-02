@@ -7,3 +7,6 @@
 !/agent/extensions/
 /agent/extensions/*
 !/agent/extensions/agents-settings.ts
+!/tests/
+/tests/*
+!/tests/agents-settings.test.mjs
