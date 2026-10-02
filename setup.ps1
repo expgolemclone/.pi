@@ -20,13 +20,18 @@ foreach ($key in @('defaultProvider', 'defaultModel', 'defaultThinkingLevel')) {
 }
 $npmRoot = (& npm root --global).Trim()
 if ($LASTEXITCODE -ne 0) { throw 'Could not locate the global npm directory.' }
-$planModePath = Join-Path $npmRoot '@earendil-works/pi-coding-agent/examples/extensions/plan-mode/index.ts'
-if (-not (Test-Path -LiteralPath $planModePath)) {
-    throw "The installed Pi does not include the plan-mode example: $planModePath"
+$officialExtensionPaths = @(
+    (Join-Path $npmRoot '@earendil-works/pi-coding-agent/examples/extensions/plan-mode/index.ts')
+    (Join-Path $npmRoot '@earendil-works/pi-coding-agent/examples/extensions/notify.ts')
+)
+foreach ($path in $officialExtensionPaths) {
+    if (-not (Test-Path -LiteralPath $path)) {
+        throw "The installed Pi does not include the required official extension: $path"
+    }
 }
 $extensions = if ($settings.ContainsKey('extensions')) { @($settings['extensions']) } else { @() }
-$settings['extensions'] = @((@($extensions) + @($planModePath)) | Select-Object -Unique)
+$settings['extensions'] = @((@($extensions) + $officialExtensionPaths) | Select-Object -Unique)
 $settings['defaultTools'] = @('read', 'powershell', 'edit', 'write', 'grep', 'find', 'ls')
 $settings['defaultProjectTrust'] = 'never'
 $settings | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $settingsPath -Encoding utf8
-Write-Output 'Pi is configured to use shared .agents resources, PowerShell, and the official plan-mode extension.'
+Write-Output 'Pi is configured to use shared .agents resources, PowerShell, and the official plan-mode and notify extensions.'

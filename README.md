@@ -24,6 +24,15 @@ Windows native Pi setup using ChatGPT OAuth. Verified with Pi 1.0.0 and PowerShe
 - Ask for a numbered `Plan:`. The extension offers execution approval and tracks progress with `/todos`.
 - This is not a sandbox: the sample disables `edit`/`write` and filters Bash, but does not restrict PowerShell or other custom tools. For file-only exploration, start `pi --plan --tools read,grep,find,ls --exclude-tools bash,powershell`.
 
+## Input-ready notification
+
+`setup.ps1` loads the official `notify.ts` example directly from the installed Pi package, without copying or modifying it. Run `/reload` after setup.
+
+- Notifies once the full agent run settles, not during automatic retries or continuations.
+- Windows Terminal uses a Windows toast titled `Pi` with `Ready for input`. Enable Windows Settings > System > Notifications and notification sounds; Do not disturb can suppress alerts.
+- The unmodified example can emit a Windows PowerShell `Collection was modified` error while composing XML, but still reaches toast submission.
+- Mid-run confirmation dialogs are not covered. The official example has no mute command or interactive-mode filter.
+
 ## Boundaries
 
 - Project trust is Pi-local in `agent/trust.json`. Unregistered projects do not load project resources; `pi --approve` trusts one invocation.

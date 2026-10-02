@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -22,8 +22,8 @@ test('rejects unknown, missing and invalid settings', () => {
   }
 });
 
-test('loads live Pi settings, instructions and priority tier without a legacy home directory', async () => {
-  assert.equal(existsSync(join(homedir(), '.codex')), false);
+test('loads live Pi settings, instructions and priority tier without a Codex dependency', async () => {
+  assert.doesNotMatch(readFileSync(new URL('../agent/extensions/agents-settings.ts', import.meta.url), 'utf8'), /\.codex/);
   const live = parseSettings(readFileSync(join(homedir(), '.agents/settings.json'), 'utf8'));
   const handlers = new Map();
   let thinking;
