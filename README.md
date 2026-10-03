@@ -39,7 +39,7 @@ Windows native Pi setup using ChatGPT OAuth. Verified with Pi 1.0.0 and PowerShe
 
 - `tools/vendor/zzfx.mjs` extracts upstream `buildSamples` without browser initialization or synthesis changes. Its MIT license is included.
 - The PCM writer uses correct mono block alignment instead of upstream `wav.js`'s fixed value of 4, and rejects invalid or clipping samples.
-- Run `./tools/preview-sound.ps1 1`, `2`, or `3` to hear the soft chime, wood-like tone, or retro jingle. Playback is explicit; the existing Pi notification is unchanged until a sound is selected.
+- Run `./tools/preview-sound.ps1 1`, `2`, or `3` to hear the soft two-note chime, wood-like three-note chime, or retro jingle. Playback is explicit; the existing Pi notification is unchanged until a sound is selected.
 - Run `node --test tests/*.test.mjs` to check format, signal bounds, reproducibility, and existing configuration.
 
 ## Boundaries

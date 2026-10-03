@@ -15,6 +15,13 @@ export const upstream = {
 // repeatTime, noise, modulation, bitCrush, delay, sustainVolume, decay,
 // tremolo, filter. Omitted trailing values use the pinned ZzFX defaults.
 // Randomness is always zero. This is the only source of candidate definitions.
+function woodNote(at, frequency) {
+  return [
+    { at, parameters: [0.20, 0, frequency, 0.003, 0, 0.22, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.20, 0.045] },
+    { at, parameters: [0.035, 0, frequency * 2.5, 0.003, 0, 0.07, 0] },
+  ];
+}
+
 export const candidates = [
   {
     name: '01-soft-chime',
@@ -26,10 +33,11 @@ export const candidates = [
   },
   {
     name: '02-wood-tone',
-    description: 'Rounded single wood-like tone',
+    description: 'Rounded ascending three-note wood-like chime',
     notes: [
-      { at: 0, parameters: [0.20, 0, 659.255114, 0.003, 0, 0.22, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.20, 0.045] },
-      { at: 0, parameters: [0.035, 0, 1648.137785, 0.003, 0, 0.07, 0] },
+      ...woodNote(0, 523.251131),
+      ...woodNote(0.09, 659.255114),
+      ...woodNote(0.18, 783.990872),
     ],
   },
   {

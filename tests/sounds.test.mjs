@@ -27,6 +27,29 @@ test('pinned ZzFX generates reproducible samples without an audio device', () =>
   assert.ok(buildSamples(0.2, 0, 440).length > 0);
 });
 
+test('wood chime has three ascending notes with the same two-component timbre', () => {
+  const wood = candidates.find(({ name }) => name === '02-wood-tone');
+  assert.equal(wood.notes.length, 6);
+  let previousFrequency = 0;
+  let previousTime = -1;
+  for (let i = 0; i < wood.notes.length; i += 2) {
+    const fundamental = wood.notes[i];
+    const overtone = wood.notes[i + 1];
+    assert.equal(fundamental.at, overtone.at);
+    assert.ok(fundamental.at > previousTime);
+    assert.ok(fundamental.parameters[2] > previousFrequency);
+    assert.equal(overtone.parameters[2], fundamental.parameters[2] * 2.5);
+    if (i > 0) {
+      for (const component of [0, 1]) {
+        const timbre = wood.notes[i + component].parameters.filter((_, index) => index !== 2);
+        assert.deepEqual(timbre, wood.notes[component].parameters.filter((_, index) => index !== 2));
+      }
+    }
+    previousTime = fundamental.at;
+    previousFrequency = fundamental.parameters[2];
+  }
+});
+
 test('PCM writer rejects clipping and non-finite samples instead of hiding them', () => {
   for (const value of [-1, 1, -1.1, 1.1, NaN, Infinity, -Infinity]) {
     assert.throws(() => encodeWav([value]), /Invalid or clipping sample/);
