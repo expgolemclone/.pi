@@ -33,6 +33,15 @@ Windows native Pi setup using ChatGPT OAuth. Verified with Pi 1.0.0 and PowerShe
 - The unmodified example can emit a Windows PowerShell `Collection was modified` error while composing XML, but still reaches toast submission.
 - Mid-run confirmation dialogs are not covered. The official example has no mute command or interactive-mode filter.
 
+## Completion sound candidates
+
+`node tools/sounds.mjs` generates three local WAVs and `validation.json` in `agent/sounds/candidates/`. These generated files are not tracked. Definitions live only in `tools/sounds.mjs`; ZzFX 1.4.0 is pinned to commit `aab7e2b6b9086746b6e55fab75c75ce03e716c49`.
+
+- `tools/vendor/zzfx.mjs` extracts upstream `buildSamples` without browser initialization or synthesis changes. Its MIT license is included.
+- The PCM writer uses correct mono block alignment instead of upstream `wav.js`'s fixed value of 4, and rejects invalid or clipping samples.
+- Run `./tools/preview-sound.ps1 1`, `2`, or `3` to hear the soft chime, wood-like tone, or retro jingle. Playback is explicit; the existing Pi notification is unchanged until a sound is selected.
+- Run `node --test tests/*.test.mjs` to check format, signal bounds, reproducibility, and existing configuration.
+
 ## Boundaries
 
 - Project trust is Pi-local in `agent/trust.json`. Unregistered projects do not load project resources; `pi --approve` trusts one invocation.

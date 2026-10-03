@@ -11,3 +11,12 @@
 /tests/*
 !/tests/agents-settings.test.mjs
 !/tests/setup.test.mjs
+!/tests/sounds.test.mjs
+!/tools/
+/tools/*
+!/tools/sounds.mjs
+!/tools/preview-sound.ps1
+!/tools/vendor/
+/tools/vendor/*
+!/tools/vendor/zzfx.mjs
+!/tools/vendor/LICENSE.zzfx
