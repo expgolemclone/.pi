@@ -35,7 +35,7 @@ $extensions = @($extensions | Where-Object {
     ($_ -replace '\\', '/') -notmatch '/@earendil-works/pi-coding-agent/examples/extensions/notify\.ts$'
 })
 $settings['extensions'] = @((@($extensions) + $officialExtensionPaths) | Select-Object -Unique)
-# The local notify/index.ts is auto-discovered. Generate its single audio asset.
+# The local notify.ts is auto-discovered. Generate its single audio asset.
 & node (Join-Path $PSScriptRoot 'tools/sounds.mjs')
 if ($LASTEXITCODE -ne 0) { throw 'Could not generate the Pi completion sound.' }
 $legacyCandidates = Join-Path $PSScriptRoot 'agent/sounds/candidates'

@@ -7,10 +7,7 @@
 !/agent/extensions/
 /agent/extensions/*
 !/agent/extensions/agents-settings.ts
-!/agent/extensions/notify/
-/agent/extensions/notify/*
-!/agent/extensions/notify/index.ts
-!/agent/extensions/notify/windows.ps1
+!/agent/extensions/notify.ts
 !/tests/
 /tests/*
 !/tests/agents-settings.test.mjs
@@ -19,7 +16,7 @@
 !/tools/
 /tools/*
 !/tools/sounds.mjs
-!/tools/preview-sound.ps1
+!/tools/preview-sound.mjs
 !/tools/vendor/
 /tools/vendor/*
 !/tools/vendor/zzfx.mjs
