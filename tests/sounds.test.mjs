@@ -33,6 +33,8 @@ test('adopted wood chime has three ascending notes with the same two-component t
     assert.equal(fundamental.at, overtone.at);
     assert.ok(fundamental.at > previousTime);
     assert.ok(fundamental.parameters[2] > previousFrequency);
+    const midiNote = [60, 64, 67][i / 2]; // C4, E4, G4, one octave below the original
+    assert.ok(Math.abs(fundamental.parameters[2] - 440 * 2 ** ((midiNote - 69) / 12)) < 0.00001);
     assert.equal(overtone.parameters[2], fundamental.parameters[2] * 2.5);
     if (i > 0) {
       for (const component of [0, 1]) {

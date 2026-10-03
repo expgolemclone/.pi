@@ -25,9 +25,9 @@ function woodNote(at, frequency) {
 export const sound = {
   description: 'Rounded ascending three-note wood-like chime',
   notes: [
-    ...woodNote(0, 523.251131),
-    ...woodNote(0.09, 659.255114),
-    ...woodNote(0.18, 783.990872),
+    ...woodNote(0, 261.6255655),
+    ...woodNote(0.09, 329.627557),
+    ...woodNote(0.18, 391.995436),
   ],
 };
 
