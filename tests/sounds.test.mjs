@@ -1,48 +1,43 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, mkdir } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import test from 'node:test';
-import { candidates, render, encodeWav, inspectWav, generate, upstream } from '../tools/sounds.mjs';
+import { sound, render, encodeWav, inspectWav, generate, upstream } from '../tools/sounds.mjs';
 import { buildSamples } from '../tools/vendor/zzfx.mjs';
 
-// Importing these modules in plain Node already verifies that no AudioContext,
-// browser, or audio device is required.
+// Plain Node import verifies there is no AudioContext or audio-device dependency.
 test('pinned ZzFX generates reproducible samples without an audio device', () => {
   assert.equal(upstream.version, '1.4.0');
   assert.match(upstream.commit, /^[a-f0-9]{40}$/);
   assert.equal(typeof globalThis.AudioContext, 'undefined');
-  assert.equal(candidates.length, 3);
-  for (const candidate of candidates) {
-    const samples = render(candidate);
-    assert.deepEqual(render(candidate), samples);
-    const metrics = inspectWav(encodeWav(samples));
-    assert.ok(metrics.durationSeconds >= 0.2 && metrics.durationSeconds <= 0.5);
-    assert.ok(metrics.peak > 0.05 && metrics.peak <= 0.35);
-    assert.ok(metrics.rms > 0.01);
-    assert.equal(metrics.clippedSamples, 0);
-    assert.ok(Math.abs(metrics.dcOffset) < 0.001);
-    assert.equal(metrics.firstSample, 0);
-    assert.ok(Math.abs(metrics.lastSample) <= 8);
-  }
+  const samples = render();
+  assert.deepEqual(render(), samples);
+  const metrics = inspectWav(encodeWav(samples));
+  assert.ok(metrics.durationSeconds >= 0.2 && metrics.durationSeconds <= 0.5);
+  assert.ok(metrics.peak > 0.05 && metrics.peak <= 0.35);
+  assert.ok(metrics.rms > 0.01);
+  assert.equal(metrics.clippedSamples, 0);
+  assert.ok(Math.abs(metrics.dcOffset) < 0.001);
+  assert.equal(metrics.firstSample, 0);
+  assert.ok(Math.abs(metrics.lastSample) <= 8);
   assert.ok(buildSamples(0.2, 0, 440).length > 0);
 });
 
-test('wood chime has three ascending notes with the same two-component timbre', () => {
-  const wood = candidates.find(({ name }) => name === '02-wood-tone');
-  assert.equal(wood.notes.length, 6);
+test('adopted wood chime has three ascending notes with the same two-component timbre', () => {
+  assert.equal(sound.notes.length, 6);
   let previousFrequency = 0;
   let previousTime = -1;
-  for (let i = 0; i < wood.notes.length; i += 2) {
-    const fundamental = wood.notes[i];
-    const overtone = wood.notes[i + 1];
+  for (let i = 0; i < sound.notes.length; i += 2) {
+    const fundamental = sound.notes[i];
+    const overtone = sound.notes[i + 1];
     assert.equal(fundamental.at, overtone.at);
     assert.ok(fundamental.at > previousTime);
     assert.ok(fundamental.parameters[2] > previousFrequency);
     assert.equal(overtone.parameters[2], fundamental.parameters[2] * 2.5);
     if (i > 0) {
       for (const component of [0, 1]) {
-        const timbre = wood.notes[i + component].parameters.filter((_, index) => index !== 2);
-        assert.deepEqual(timbre, wood.notes[component].parameters.filter((_, index) => index !== 2));
+        const timbre = sound.notes[i + component].parameters.filter((_, index) => index !== 2);
+        assert.deepEqual(timbre, sound.notes[component].parameters.filter((_, index) => index !== 2));
       }
     }
     previousTime = fundamental.at;
@@ -62,19 +57,18 @@ test('PCM writer rejects clipping and non-finite samples instead of hiding them'
   assert.throws(() => inspectWav(wav));
 });
 
-test('candidate generation writes reproducible WAVs and validates files on disk', async (t) => {
+test('generation writes only the adopted WAV and its reproducible validation report', async (t) => {
   const parent = 'C:/dev/tmp';
   await mkdir(parent, { recursive: true });
   const directory = await mkdtemp(join(parent, 'pi-sounds-test-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const report = await generate(directory);
-  const first = await Promise.all(report.map(({ file }) => readFile(join(directory, file))));
+  const first = await readFile(join(directory, report.file));
   assert.deepEqual(await generate(directory), report);
-  for (const [i, item] of report.entries()) {
-    const wav = await readFile(join(directory, item.file));
-    assert.deepEqual(wav, first[i]);
-    const { file, description, ...metrics } = item;
-    assert.deepEqual(inspectWav(wav), metrics);
-  }
+  const wav = await readFile(join(directory, report.file));
+  assert.deepEqual(wav, first);
+  const { file, description, ...metrics } = report;
+  assert.deepEqual(inspectWav(wav), metrics);
   assert.deepEqual(JSON.parse(await readFile(join(directory, 'validation.json'), 'utf8')), { upstream, report });
+  assert.deepEqual((await readdir(directory)).sort(), ['ready.wav', 'validation.json']);
 });

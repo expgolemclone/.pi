@@ -26,21 +26,20 @@ Windows native Pi setup using ChatGPT OAuth. Verified with Pi 1.0.0 and PowerShe
 
 ## Input-ready notification
 
-`setup.ps1` loads the official `notify.ts` example directly from the installed Pi package, without copying or modifying it. Run `/reload` after setup.
+`agent/extensions/notify/index.ts` is auto-discovered. `setup.ps1` removes the old official notifier and generates the adopted three-note wood-like chime. Run `/reload` after setup.
 
-- Notifies once the full agent run settles, not during automatic retries or continuations.
-- Windows Terminal uses a Windows toast titled `Pi` with `Ready for input`. Enable Windows Settings > System > Notifications and notification sounds; Do not disturb can suppress alerts.
-- The unmodified example can emit a Windows PowerShell `Collection was modified` error while composing XML, but still reaches toast submission.
-- Mid-run confirmation dialogs are not covered. The official example has no mute command or interactive-mode filter.
+- Notifies once at `agent_settled`, after automatic retries and continuations, only in native Windows interactive mode. Mid-run confirmation dialogs are not covered.
+- A Windows toast titled `Pi` says `Ready for input`. Its audio is explicitly silent; only `agent/sounds/ready.wav` plays. Windows' global notification sound settings are unchanged.
+- Direct WAV playback is independent of Do not disturb; Windows notification settings can suppress the banner, not the chime. Use system/application volume controls to mute it.
+- The helper loads XML directly, avoiding the official example's live DOM collection mutation. Process failures are reported; no fallback sound is used.
 
-## Completion sound candidates
+## Completion sound
 
-`node tools/sounds.mjs` generates three local WAVs and `validation.json` in `agent/sounds/candidates/`. These generated files are not tracked. Definitions live only in `tools/sounds.mjs`; ZzFX 1.4.0 is pinned to commit `aab7e2b6b9086746b6e55fab75c75ce03e716c49`.
+`node tools/sounds.mjs` regenerates `agent/sounds/ready.wav` and `validation.json`. Generated files are not tracked. Parameters live only in `tools/sounds.mjs`; rejected candidates are removed by setup.
 
-- `tools/vendor/zzfx.mjs` extracts upstream `buildSamples` without browser initialization or synthesis changes. Its MIT license is included.
-- The PCM writer uses correct mono block alignment instead of upstream `wav.js`'s fixed value of 4, and rejects invalid or clipping samples.
-- Run `./tools/preview-sound.ps1 1`, `2`, or `3` to hear the soft two-note chime, wood-like three-note chime, or retro jingle. Playback is explicit; the existing Pi notification is unchanged until a sound is selected.
-- Run `node --test tests/*.test.mjs` to check format, signal bounds, reproducibility, and existing configuration.
+- ZzFX 1.4.0 is pinned to commit `aab7e2b6b9086746b6e55fab75c75ce03e716c49`. `tools/vendor/zzfx.mjs` extracts upstream `buildSamples` without browser initialization or synthesis changes. Its MIT license is included.
+- The adopted sound is 0.448 seconds, mono, 44.1 kHz, 16-bit PCM. The writer uses correct mono block alignment instead of upstream `wav.js`'s fixed value of 4 and rejects invalid or clipping samples.
+- Run `./tools/preview-sound.ps1` to hear it, or `node --test tests/*.test.mjs` to verify notification loading, mode filtering, single playback, WAV validity, reproducibility, and existing configuration.
 
 ## Boundaries
 

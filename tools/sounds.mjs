@@ -14,7 +14,7 @@ export const upstream = {
 // release, shape, shapeCurve, slide, deltaSlide, pitchJump, pitchJumpTime,
 // repeatTime, noise, modulation, bitCrush, delay, sustainVolume, decay,
 // tremolo, filter. Omitted trailing values use the pinned ZzFX defaults.
-// Randomness is always zero. This is the only source of candidate definitions.
+// Randomness is always zero. This is the only source of the adopted sound.
 function woodNote(at, frequency) {
   return [
     { at, parameters: [0.20, 0, frequency, 0.003, 0, 0.22, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.20, 0.045] },
@@ -22,37 +22,17 @@ function woodNote(at, frequency) {
   ];
 }
 
-export const candidates = [
-  {
-    name: '01-soft-chime',
-    description: 'Soft ascending two-note chime',
-    notes: [
-      { at: 0, parameters: [0.16, 0, 523.251131, 0.012, 0.025, 0.22, 0] },
-      { at: 0.14, parameters: [0.16, 0, 783.990872, 0.012, 0.025, 0.24, 0] },
-    ],
-  },
-  {
-    name: '02-wood-tone',
-    description: 'Rounded ascending three-note wood-like chime',
-    notes: [
-      ...woodNote(0, 523.251131),
-      ...woodNote(0.09, 659.255114),
-      ...woodNote(0.18, 783.990872),
-    ],
-  },
-  {
-    name: '03-retro-complete',
-    description: 'Short ascending three-note triangle-wave jingle',
-    notes: [
-      { at: 0, parameters: [0.13, 0, 523.251131, 0.006, 0.025, 0.07, 1] },
-      { at: 0.085, parameters: [0.13, 0, 659.255114, 0.006, 0.025, 0.07, 1] },
-      { at: 0.17, parameters: [0.13, 0, 783.990872, 0.006, 0.035, 0.16, 1] },
-    ],
-  },
-];
+export const sound = {
+  description: 'Rounded ascending three-note wood-like chime',
+  notes: [
+    ...woodNote(0, 523.251131),
+    ...woodNote(0.09, 659.255114),
+    ...woodNote(0.18, 783.990872),
+  ],
+};
 
-export function render(candidate) {
-  const notes = candidate.notes.map(({ at, parameters }) => {
+export function render() {
+  const notes = sound.notes.map(({ at, parameters }) => {
     assert.equal(parameters[1], 0, 'Frequency randomness must be disabled');
     assert.ok(at >= 0 && Number.isFinite(at));
     return { offset: Math.round(at * SAMPLE_RATE), samples: buildSamples(...parameters) };
@@ -125,32 +105,29 @@ export function inspectWav(wav) {
 }
 
 export async function generate(outputDirectory) {
+  const wav = encodeWav(render());
+  const metrics = inspectWav(wav);
+  assert.equal(metrics.clippedSamples, 0);
+  assert.ok(metrics.durationSeconds >= 0.2 && metrics.durationSeconds <= 0.5);
+  assert.ok(metrics.peak > 0.05 && metrics.peak <= 0.35);
+  assert.ok(Math.abs(metrics.dcOffset) < 0.001);
+  assert.equal(metrics.firstSample, 0);
+  assert.ok(Math.abs(metrics.lastSample) <= 8);
+  const report = { file: 'ready.wav', description: sound.description, ...metrics };
   await mkdir(outputDirectory, { recursive: true });
-  const report = [];
-  for (const candidate of candidates) {
-    const wav = encodeWav(render(candidate));
-    const metrics = inspectWav(wav);
-    assert.equal(metrics.clippedSamples, 0);
-    assert.ok(metrics.durationSeconds >= 0.2 && metrics.durationSeconds <= 0.5);
-    assert.ok(metrics.peak > 0.05 && metrics.peak <= 0.35);
-    assert.ok(Math.abs(metrics.dcOffset) < 0.001);
-    assert.equal(metrics.firstSample, 0);
-    assert.ok(Math.abs(metrics.lastSample) <= 8);
-    const file = `${candidate.name}.wav`;
-    await writeFile(join(outputDirectory, file), wav);
-    report.push({ file, description: candidate.description, ...metrics });
-  }
+  await writeFile(join(outputDirectory, report.file), wav);
   await writeFile(join(outputDirectory, 'validation.json'), JSON.stringify({ upstream, report }, null, 2) + '\n');
   return report;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const root = dirname(dirname(fileURLToPath(import.meta.url)));
-  const directory = process.argv[2] ? resolve(process.argv[2]) : join(root, 'agent/sounds/candidates');
+  const directory = process.argv[2] ? resolve(process.argv[2]) : join(root, 'agent/sounds');
   const report = await generate(directory);
   console.log(directory);
-  console.table(report.map(({ file, durationSeconds, peakDbfs, rms, clippedSamples }) => ({
-    file, seconds: durationSeconds.toFixed(3), peakDbfs: peakDbfs.toFixed(2),
-    rms: rms.toFixed(4), clippedSamples,
-  })));
+  console.table([{
+    file: report.file, seconds: report.durationSeconds.toFixed(3),
+    peakDbfs: report.peakDbfs.toFixed(2), rms: report.rms.toFixed(4),
+    clippedSamples: report.clippedSamples,
+  }]);
 }
