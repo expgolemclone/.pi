@@ -16,14 +16,6 @@ Windows native Pi setup using ChatGPT OAuth. Verified with Pi 1.0.0 and PowerShe
 - `setup.ps1` generates Pi's local `agent/settings.json`, enabling PowerShell and file tools while preserving Pi runtime metadata. Edit this script to change the managed tool selection, then rerun it.
 - GitHub stores the source repositories. Pi reads their local checkouts. Synchronize with `jj` before use when remote changes must be reflected. Direct GitHub reads are not configured.
 
-## Plan mode
-
-`setup.ps1` loads the official plan-mode example directly from the installed Pi package, without copying its source. Run `/reload` after setup.
-
-- `/plan` or `Ctrl+Alt+P` toggles planning. `pi --plan` starts in plan mode.
-- Ask for a numbered `Plan:`. The extension offers execution approval and tracks progress with `/todos`.
-- This is not a sandbox: the sample disables `edit`/`write` and filters Bash, but does not restrict PowerShell or other custom tools. For file-only exploration, start `pi --plan --tools read,grep,find,ls --exclude-tools bash,powershell`.
-
 ## Input-ready notification
 
 `agent/extensions/notify.ts` is auto-discovered. `setup.ps1` removes the old official notifier and generates the adopted three-note wood-like chime. Run `/reload` after setup.

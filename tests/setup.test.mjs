@@ -17,10 +17,16 @@ const settingsPath = join(root, 'agent/settings.json');
 const readSettings = () => JSON.parse(readFileSync(settingsPath, 'utf8').replace(/^\uFEFF/, ''));
 
 // This checkout is the live ~/.pi configuration, as required by setup.ps1.
-test('setup retires official notifiers, generates one sound, and preserves runtime metadata', () => {
+test('setup retires official plan mode and notifiers, generates one sound, and preserves runtime metadata', () => {
   const before = readSettings();
-  const legacy = [oldNotifyPath, '+C:/old/npm/@earendil-works/pi-coding-agent/examples/extensions/notify.ts'];
-  writeFileSync(settingsPath, JSON.stringify({ ...before, extensions: [...before.extensions, ...legacy] }));
+  const legacyRoot = 'C:/old/npm/@earendil-works/pi-coding-agent/examples/extensions';
+  const legacy = [
+    oldNotifyPath, `+${legacyRoot}/notify.ts`, planPath,
+    `+${legacyRoot}/plan-mode/index.ts`, `${legacyRoot}/plan-mode/index.js`,
+    `${legacyRoot}/plan-mode`, `${legacyRoot}/plan-mode/`,
+    `${legacyRoot}/plan-mode/index.ts`.replaceAll('/', '\\'),
+  ];
+  writeFileSync(settingsPath, JSON.stringify({ ...before, extensions: [...(before.extensions ?? []), ...legacy] }));
   const setup = () => execFileSync('pwsh', ['-NoProfile', '-File', join(root, 'setup.ps1')], { encoding: 'utf8' });
   setup();
   const first = readSettings();
@@ -28,7 +34,10 @@ test('setup retires official notifiers, generates one sound, and preserves runti
   setup();
   assert.deepEqual(readSettings(), first);
   assert.deepEqual(readFileSync(soundPath), firstSound);
-  assert.equal(first.extensions.filter((entry) => entry === planPath).length, 1);
+  assert.ok(first.extensions.every((entry) => !legacy.includes(entry)));
+  assert.deepEqual(first.extensions, [...new Set((before.extensions ?? []).filter((entry) =>
+    !/\/examples\/extensions\/(notify\.ts|plan-mode(?:\/index\.(?:ts|js))?)\/?$/.test(entry.replaceAll('\\', '/'))
+  ))]);
   assert.ok(first.extensions.every((entry) => !entry.replaceAll('\\', '/').endsWith('/examples/extensions/notify.ts')));
   assert.ok(!first.extensions.includes(notifyPath)); // loaded by discovery, not configured twice
   assert.equal(existsSync(join(root, 'agent/sounds/candidates')), false);
@@ -39,14 +48,34 @@ test('setup retires official notifiers, generates one sound, and preserves runti
   }
 });
 
-test('Pi discovers the local notifier once and no longer loads the official notifier', async () => {
+test('setup supports absent or empty extension lists and preserves unrelated entries', () => {
+  const before = readSettings();
+  try {
+    for (const extensions of [undefined, [], ['-builtin:mcp']]) {
+      const settings = { ...before, extensions };
+      writeFileSync(settingsPath, JSON.stringify(settings));
+      execFileSync('pwsh', ['-NoProfile', '-File', join(root, 'setup.ps1')], { encoding: 'utf8' });
+      assert.deepEqual(readSettings().extensions, extensions ?? []);
+    }
+  } finally {
+    writeFileSync(settingsPath, JSON.stringify(before, null, 2));
+  }
+});
+
+test('Pi discovers the local notifier once without official plan mode or notifier capabilities', async () => {
   const { discoverAndLoadExtensions } = await import(pathToFileURL(join(packageRoot, 'dist/core/extensions/loader.js')).href);
   const result = await discoverAndLoadExtensions(readSettings().extensions, root, join(root, 'agent'));
   assert.deepEqual(result.errors, []);
   const notifications = result.extensions.filter(({ path }) => path === notifyPath);
   assert.equal(notifications.length, 1);
   assert.deepEqual([...notifications[0].handlers.keys()], ['agent_settled']);
-  assert.ok(result.extensions.every(({ path }) => path !== oldNotifyPath));
+  assert.ok(result.extensions.every(({ path }) => path !== oldNotifyPath && path !== planPath));
+  for (const extension of result.extensions) {
+    assert.ok(!extension.commands.has('plan'));
+    assert.ok(!extension.commands.has('todos'));
+    assert.ok(!extension.flags.has('plan'));
+    assert.ok(!extension.shortcuts.has('ctrl+alt+p'));
+  }
 });
 
 function register(exec) {

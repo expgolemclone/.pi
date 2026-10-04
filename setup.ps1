@@ -19,22 +19,11 @@ $settings = if (Test-Path -LiteralPath $settingsPath) {
 foreach ($key in @('defaultProvider', 'defaultModel', 'defaultThinkingLevel')) {
     $settings.Remove($key) | Out-Null
 }
-$npmRoot = (& npm root --global).Trim()
-if ($LASTEXITCODE -ne 0) { throw 'Could not locate the global npm directory.' }
-$officialExtensionPaths = @(
-    (Join-Path $npmRoot '@earendil-works/pi-coding-agent/examples/extensions/plan-mode/index.ts')
-)
-foreach ($path in $officialExtensionPaths) {
-    if (-not (Test-Path -LiteralPath $path)) {
-        throw "The installed Pi does not include the required official extension: $path"
-    }
-}
 $extensions = if ($settings.ContainsKey('extensions')) { @($settings['extensions']) } else { @() }
-# Retire the old notifier even if its npm root or path separator has changed.
-$extensions = @($extensions | Where-Object {
-    ($_ -replace '\\', '/') -notmatch '/@earendil-works/pi-coding-agent/examples/extensions/notify\.ts$'
-})
-$settings['extensions'] = @((@($extensions) + $officialExtensionPaths) | Select-Object -Unique)
+# Retire official plan-mode and notifier paths regardless of npm root or separator.
+$settings['extensions'] = @($extensions | Where-Object {
+    ($_ -replace '\\', '/') -notmatch '/@earendil-works/pi-coding-agent/examples/extensions/(notify\.ts|plan-mode(?:/index\.(?:ts|js))?)/?$'
+} | Select-Object -Unique)
 # The local notify.ts is auto-discovered. Generate its single audio asset.
 & node (Join-Path $PSScriptRoot 'tools/sounds.mjs')
 if ($LASTEXITCODE -ne 0) { throw 'Could not generate the Pi completion sound.' }
@@ -45,4 +34,4 @@ if (Test-Path -LiteralPath $legacyCandidates) {
 $settings['defaultTools'] = @('read', 'powershell', 'edit', 'write', 'grep', 'find', 'ls')
 $settings['defaultProjectTrust'] = 'never'
 $settings | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $settingsPath -Encoding utf8
-Write-Output 'Pi is configured to use shared .agents resources, PowerShell, official plan-mode, and the local three-note completion notifier. Run /reload.'
+Write-Output 'Pi is configured to use shared .agents resources, PowerShell, and the local three-note completion notifier. Run /reload.'
