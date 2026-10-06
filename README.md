@@ -30,7 +30,7 @@ Windows native Pi setup using ChatGPT OAuth. Verified with Pi 1.0.0 and PowerShe
 `node tools/sounds.mjs` regenerates `agent/sounds/ready.wav` and `validation.json`. Generated files are not tracked. Parameters live only in `tools/sounds.mjs`; rejected candidates are removed by setup.
 
 - ZzFX 1.4.0 is pinned to commit `aab7e2b6b9086746b6e55fab75c75ce03e716c49`. `tools/vendor/zzfx.mjs` extracts upstream `buildSamples` without browser initialization or synthesis changes. Its MIT license is included.
-- The adopted sound ascends through C4, E4, G4 and is 0.448 seconds, mono, 44.1 kHz, 16-bit PCM. Both component amplitudes are doubled (+6.02 dB) for a peak near -6.42 dBFS, without changing timbre or system volume. The writer uses correct mono block alignment instead of upstream `wav.js`'s fixed value of 4 and rejects invalid or clipping samples.
+- The adopted sound ascends through C4, E4, G4 and is 0.448 seconds, mono, 44.1 kHz, 16-bit PCM. Both component amplitudes are quadrupled (+12.04 dB from the original) for a peak near -0.40 dBFS, without changing timbre or system volume. Only about 0.4 dB of peak headroom remains; further gain requires changing the waveform to avoid clipping. The writer uses correct mono block alignment instead of upstream `wav.js`'s fixed value of 4 and rejects invalid or clipping samples.
 - Run `node tools/preview-sound.mjs` to preview the same toast and chime as Pi, or `node --test tests/*.test.mjs` to verify notification loading, mode filtering, single playback under `Restricted`, WAV validity, reproducibility, and existing configuration.
 
 ## Boundaries
