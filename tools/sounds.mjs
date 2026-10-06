@@ -17,8 +17,8 @@ export const upstream = {
 // Randomness is always zero. This is the only source of the adopted sound.
 function woodNote(at, frequency) {
   return [
-    { at, parameters: [0.20, 0, frequency, 0.003, 0, 0.22, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.20, 0.045] },
-    { at, parameters: [0.035, 0, frequency * 2.5, 0.003, 0, 0.07, 0] },
+    { at, parameters: [0.40, 0, frequency, 0.003, 0, 0.22, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.20, 0.045] },
+    { at, parameters: [0.070, 0, frequency * 2.5, 0.003, 0, 0.07, 0] },
   ];
 }
 
@@ -109,7 +109,7 @@ export async function generate(outputDirectory) {
   const metrics = inspectWav(wav);
   assert.equal(metrics.clippedSamples, 0);
   assert.ok(metrics.durationSeconds >= 0.2 && metrics.durationSeconds <= 0.5);
-  assert.ok(metrics.peak > 0.05 && metrics.peak <= 0.35);
+  assert.ok(metrics.peak >= 0.45 && metrics.peak <= 0.5);
   assert.ok(Math.abs(metrics.dcOffset) < 0.001);
   assert.equal(metrics.firstSample, 0);
   assert.ok(Math.abs(metrics.lastSample) <= 8);

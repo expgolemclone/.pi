@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, cpSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import test from 'node:test';
+import test, { after } from 'node:test';
 import notifier, { notificationCommand } from '../agent/extensions/notify.ts';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -13,10 +13,26 @@ const planPath = join(packageRoot, 'examples/extensions/plan-mode/index.ts');
 const oldNotifyPath = join(packageRoot, 'examples/extensions/notify.ts');
 const notifyPath = join(root, 'agent/extensions/notify.ts');
 const soundPath = join(root, 'agent/sounds/ready.wav');
-const settingsPath = join(root, 'agent/settings.json');
+// Exercise setup in an isolated home, never in the live user configuration.
+mkdirSync('C:/dev/tmp', { recursive: true });
+const home = mkdtempSync('C:/dev/tmp/pi-setup-test-');
+after(() => rmSync(home, { recursive: true, force: true }));
+const setupRoot = join(home, '.pi');
+mkdirSync(join(setupRoot, 'agent'), { recursive: true });
+for (const path of ['setup.ps1', 'tools', 'agent/extensions']) {
+  cpSync(join(root, path), join(setupRoot, path), { recursive: true });
+}
+mkdirSync(join(home, '.agents/skills'), { recursive: true });
+writeFileSync(join(home, '.agents/settings.json'), '{}');
+writeFileSync(join(home, '.agents/AGENTS.md'), '# Test instructions\n');
+const settingsPath = join(setupRoot, 'agent/settings.json');
+writeFileSync(settingsPath, JSON.stringify({ extensions: [], lastChangelogVersion: 'test-metadata' }));
 const readSettings = () => JSON.parse(readFileSync(settingsPath, 'utf8').replace(/^\uFEFF/, ''));
+const setup = () => execFileSync('pwsh', ['-NoProfile', '-File', join(setupRoot, 'setup.ps1')], {
+  encoding: 'utf8', env: { ...process.env, USERPROFILE: home },
+});
+const setupSoundPath = join(setupRoot, 'agent/sounds/ready.wav');
 
-// This checkout is the live ~/.pi configuration, as required by setup.ps1.
 test('setup retires official plan mode and notifiers, generates one sound, and preserves runtime metadata', () => {
   const before = readSettings();
   const legacyRoot = 'C:/old/npm/@earendil-works/pi-coding-agent/examples/extensions';
@@ -27,20 +43,19 @@ test('setup retires official plan mode and notifiers, generates one sound, and p
     `${legacyRoot}/plan-mode/index.ts`.replaceAll('/', '\\'),
   ];
   writeFileSync(settingsPath, JSON.stringify({ ...before, extensions: [...(before.extensions ?? []), ...legacy] }));
-  const setup = () => execFileSync('pwsh', ['-NoProfile', '-File', join(root, 'setup.ps1')], { encoding: 'utf8' });
   setup();
   const first = readSettings();
-  const firstSound = readFileSync(soundPath);
+  const firstSound = readFileSync(setupSoundPath);
   setup();
   assert.deepEqual(readSettings(), first);
-  assert.deepEqual(readFileSync(soundPath), firstSound);
+  assert.deepEqual(readFileSync(setupSoundPath), firstSound);
   assert.ok(first.extensions.every((entry) => !legacy.includes(entry)));
   assert.deepEqual(first.extensions, [...new Set((before.extensions ?? []).filter((entry) =>
     !/\/examples\/extensions\/(notify\.ts|plan-mode(?:\/index\.(?:ts|js))?)\/?$/.test(entry.replaceAll('\\', '/'))
   ))]);
   assert.ok(first.extensions.every((entry) => !entry.replaceAll('\\', '/').endsWith('/examples/extensions/notify.ts')));
   assert.ok(!first.extensions.includes(notifyPath)); // loaded by discovery, not configured twice
-  assert.equal(existsSync(join(root, 'agent/sounds/candidates')), false);
+  assert.equal(existsSync(join(setupRoot, 'agent/sounds/candidates')), false);
   for (const [key, value] of Object.entries(before)) {
     if (!['extensions', 'defaultTools', 'defaultProjectTrust', 'defaultProvider', 'defaultModel', 'defaultThinkingLevel'].includes(key)) {
       assert.deepEqual(first[key], value);
@@ -54,7 +69,7 @@ test('setup supports absent or empty extension lists and preserves unrelated ent
     for (const extensions of [undefined, [], ['-builtin:mcp']]) {
       const settings = { ...before, extensions };
       writeFileSync(settingsPath, JSON.stringify(settings));
-      execFileSync('pwsh', ['-NoProfile', '-File', join(root, 'setup.ps1')], { encoding: 'utf8' });
+      setup();
       assert.deepEqual(readSettings().extensions, extensions ?? []);
     }
   } finally {
@@ -64,9 +79,9 @@ test('setup supports absent or empty extension lists and preserves unrelated ent
 
 test('Pi discovers the local notifier once without official plan mode or notifier capabilities', async () => {
   const { discoverAndLoadExtensions } = await import(pathToFileURL(join(packageRoot, 'dist/core/extensions/loader.js')).href);
-  const result = await discoverAndLoadExtensions(readSettings().extensions, root, join(root, 'agent'));
+  const result = await discoverAndLoadExtensions(readSettings().extensions, setupRoot, join(setupRoot, 'agent'));
   assert.deepEqual(result.errors, []);
-  const notifications = result.extensions.filter(({ path }) => path === notifyPath);
+  const notifications = result.extensions.filter(({ path }) => path === join(setupRoot, 'agent/extensions/notify.ts'));
   assert.equal(notifications.length, 1);
   assert.deepEqual([...notifications[0].handlers.keys()], ['agent_settled']);
   assert.ok(result.extensions.every(({ path }) => path !== oldNotifyPath && path !== planPath));

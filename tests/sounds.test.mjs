@@ -14,8 +14,8 @@ test('pinned ZzFX generates reproducible samples without an audio device', () =>
   assert.deepEqual(render(), samples);
   const metrics = inspectWav(encodeWav(samples));
   assert.ok(metrics.durationSeconds >= 0.2 && metrics.durationSeconds <= 0.5);
-  assert.ok(metrics.peak > 0.05 && metrics.peak <= 0.35);
-  assert.ok(metrics.rms > 0.01);
+  assert.ok(metrics.peak >= 0.45 && metrics.peak <= 0.5);
+  assert.ok(metrics.rms >= 0.10 && metrics.rms <= 0.12);
   assert.equal(metrics.clippedSamples, 0);
   assert.ok(Math.abs(metrics.dcOffset) < 0.001);
   assert.equal(metrics.firstSample, 0);
