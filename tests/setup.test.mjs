@@ -19,7 +19,7 @@ const home = mkdtempSync('C:/dev/tmp/pi-setup-test-');
 after(() => rmSync(home, { recursive: true, force: true }));
 const setupRoot = join(home, '.pi');
 mkdirSync(join(setupRoot, 'agent'), { recursive: true });
-for (const path of ['setup.ps1', 'tools', 'agent/extensions']) {
+for (const path of ['setup.ps1', 'tools', 'agent/extensions', 'agent/mcp.json']) {
   cpSync(join(root, path), join(setupRoot, path), { recursive: true });
 }
 mkdirSync(join(home, '.agents/skills'), { recursive: true });
@@ -47,6 +47,7 @@ test('setup retires official plan mode and notifiers, generates one sound, and p
   const first = readSettings();
   const firstSound = readFileSync(setupSoundPath);
   setup();
+  assert.deepEqual(readFileSync(join(setupRoot, 'agent/mcp.json')), readFileSync(join(root, 'agent/mcp.json')));
   assert.deepEqual(readSettings(), first);
   assert.deepEqual(readFileSync(setupSoundPath), firstSound);
   assert.ok(first.extensions.every((entry) => !legacy.includes(entry)));

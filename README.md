@@ -16,6 +16,15 @@ Windows native Pi setup using ChatGPT OAuth. Verified with Pi 1.0.0 and PowerShe
 - `setup.ps1` generates Pi's local `agent/settings.json`, enabling PowerShell and file tools while preserving Pi runtime metadata. Edit this script to change the managed tool selection, then rerun it.
 - GitHub stores the source repositories. Pi reads their local checkouts. Synchronize with `jj` before use when remote changes must be reflected. Direct GitHub reads are not configured.
 
+## Kintone MCP
+
+`agent/mcp.json` is the credential-free user-level configuration for the company PC's mapped workspace at `C:/dev/kintone`. It launches the built server through the installed envx Node bootstrap, independently of Codex. Credentials remain in the workspace's local configuration, never in this file.
+
+- The server is available in every Pi project without changing project trust. Pi automatically enables codemode for its tools.
+- After synchronization, run `pi mcp list` from `C:/dev/kintone` to verify the connection, then `/reload` in an existing Pi session.
+- Retire `C:/dev/kintone/.codex/config.toml` only after verification. Home-level `~/.codex` is not part of this migration.
+- `setup.ps1` preserves this configuration; it does not generate another copy. Other PCs need their own mapped workspace and installed bootstrap before enabling the server.
+
 ## Input-ready notification
 
 `agent/extensions/notify.ts` is auto-discovered. `setup.ps1` removes the old official notifier and generates the adopted three-note wood-like chime. Run `/reload` after setup.

@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "kintone": {
+      "command": "C:/Program Files/nodejs/node.exe",
+      "args": [
+        "~/AppData/Local/envx/runtimes/node/node_modules/@expgolemclone/envx-runtime/cli.mjs",
+        "run",
+        "C:/dev/kintone/kintone-workspace/dist/server/main.js"
+      ],
+      "cwd": "C:/dev/kintone",
+      "timeout": 1800
+    }
+  }
+}

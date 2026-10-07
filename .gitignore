@@ -4,6 +4,7 @@
 !/setup.ps1
 !/agent/
 /agent/*
+!/agent/mcp.json
 !/agent/extensions/
 /agent/extensions/*
 !/agent/extensions/agents-settings.ts
@@ -12,6 +13,7 @@
 /tests/*
 !/tests/agents-settings.test.mjs
 !/tests/setup.test.mjs
+!/tests/mcp.test.mjs
 !/tests/sounds.test.mjs
 !/tools/
 /tools/*
