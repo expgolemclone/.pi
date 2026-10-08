@@ -44,7 +44,7 @@ Windows native Pi setup using ChatGPT OAuth. Verified with Pi 1.0.0 and PowerShe
 
 ## Boundaries
 
-- Project trust is Pi-local in `agent/trust.json`. Unregistered projects do not load project resources; `pi --approve` trusts one invocation.
+- `setup.ps1` sets `defaultProjectTrust` to `always`: project skills, extensions and settings load without confirmation. Explicit CLI decisions, extension decisions and saved decisions in local `agent/trust.json` take precedence. This does not sandbox their execution.
 - Pi runs tools with the current user's operating-system permissions. No sandbox or approval policy is supplied by `.agents/settings.json`.
 - `provider`, `model`, `thinkingLevel` and `serviceTier` are the only `.agents/settings.json` keys. `priority` requests the OpenAI priority service tier. The model requires Pi's OpenAI OAuth credential.
 - OAuth credentials and session histories stay local. The tracked-file allowlist excludes `auth.json`, sessions, caches, generated settings and downloaded binaries. No GitHub Actions are used.

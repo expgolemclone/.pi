@@ -26,7 +26,7 @@ mkdirSync(join(home, '.agents/skills'), { recursive: true });
 writeFileSync(join(home, '.agents/settings.json'), '{}');
 writeFileSync(join(home, '.agents/AGENTS.md'), '# Test instructions\n');
 const settingsPath = join(setupRoot, 'agent/settings.json');
-writeFileSync(settingsPath, JSON.stringify({ extensions: [], lastChangelogVersion: 'test-metadata' }));
+writeFileSync(settingsPath, JSON.stringify({ extensions: [], defaultProjectTrust: 'never', lastChangelogVersion: 'test-metadata' }));
 const readSettings = () => JSON.parse(readFileSync(settingsPath, 'utf8').replace(/^\uFEFF/, ''));
 const setup = () => execFileSync('pwsh', ['-NoProfile', '-File', join(setupRoot, 'setup.ps1')], {
   encoding: 'utf8', env: { ...process.env, USERPROFILE: home },
@@ -45,6 +45,7 @@ test('setup retires official plan mode and notifiers, generates one sound, and p
   writeFileSync(settingsPath, JSON.stringify({ ...before, extensions: [...(before.extensions ?? []), ...legacy] }));
   setup();
   const first = readSettings();
+  assert.equal(first.defaultProjectTrust, 'always');
   const firstSound = readFileSync(setupSoundPath);
   setup();
   assert.deepEqual(readFileSync(join(setupRoot, 'agent/mcp.json')), readFileSync(join(root, 'agent/mcp.json')));

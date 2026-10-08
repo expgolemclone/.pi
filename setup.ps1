@@ -32,6 +32,6 @@ if (Test-Path -LiteralPath $legacyCandidates) {
     Remove-Item -LiteralPath $legacyCandidates -Recurse
 }
 $settings['defaultTools'] = @('read', 'powershell', 'edit', 'write', 'grep', 'find', 'ls')
-$settings['defaultProjectTrust'] = 'never'
+$settings['defaultProjectTrust'] = 'always'
 $settings | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $settingsPath -Encoding utf8
 Write-Output 'Pi is configured to use shared .agents resources, PowerShell, and the local three-note completion notifier. Run /reload.'
