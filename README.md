@@ -6,13 +6,14 @@ Windows native Pi setup using ChatGPT OAuth. Verified with Pi 1.0.0 and PowerShe
 
 1. Install Pi if absent: `npm install --global --ignore-scripts '@earendil-works/pi-coding-agent'`.
 2. Clone this private repository into `~/.pi` using `jj`. Existing installations already use this directory.
-3. Prepare `~/.agents`, then run `./setup.ps1` in PowerShell 7.
+3. Prepare `~/.agents` and the current-PC `local-repository-map` with its envx checkout, then run `./setup.ps1` in PowerShell 7.
 4. Start `pi`, use `/login` to select OpenAI and Sign in with ChatGPT, then complete browser login.
 
 ## Single source of settings
 
 - `agent/extensions/agents-settings.ts` reads `~/.agents/settings.json` at startup and before input. Model and reasoning effort are applied without duplicating defaults in Pi settings.
-- `~/.agents/AGENTS.md` is read into system context for every turn. Skills are discovered from `~/.agents/skills/`.
+- `~/.agents/AGENTS.md` is read into system context for every turn. Common skills are discovered from `~/.agents/skills/`. `setup.ps1` references the canonical `envx/skills/envx` through the current-PC RepositoryMap without copying it.
+- Repository-specific skills live in each repository's `skills/`, selected by `.pi/settings.json` with `"skills": ["../skills"]`. Start Pi from that repository to advertise them; changing a tool's cwd does not change Pi's resource scope. From a parent directory, resolve the target through RepositoryMap and read its `RULES.md` and relevant skill explicitly.
 - `setup.ps1` generates Pi's local `agent/settings.json`, enabling PowerShell and file tools while preserving Pi runtime metadata. Edit this script to change the managed tool selection, then rerun it.
 - GitHub stores the source repositories. Pi reads their local checkouts. Synchronize with `jj` before use when remote changes must be reflected. Direct GitHub reads are not configured.
 

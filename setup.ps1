@@ -12,6 +12,14 @@ foreach ($relativePath in @('.agents/settings.json', '.agents/AGENTS.md', '.agen
     }
 }
 
+Import-Module (Join-Path $HOME 'local-repository-map/RepositoryMap.psm1') -Force
+$envxRepositories = @((Read-LocalRepositoryMap).repositories | Where-Object repository -eq 'expgolemclone/envx')
+if ($envxRepositories.Count -ne 1) { throw 'Exactly one mapped envx repository is required.' }
+$envxSkill = Join-Path $envxRepositories[0].path 'skills/envx'
+if (-not (Test-Path -LiteralPath (Join-Path $envxSkill 'SKILL.md') -PathType Leaf)) {
+    throw "Mapped envx skill is missing: $envxSkill"
+}
+
 $settingsPath = Join-Path $PSScriptRoot 'agent/settings.json'
 $settings = if (Test-Path -LiteralPath $settingsPath) {
     Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json -AsHashtable
@@ -33,5 +41,7 @@ if (Test-Path -LiteralPath $legacyCandidates) {
 }
 $settings['defaultTools'] = @('read', 'powershell', 'edit', 'write', 'grep', 'find', 'ls')
 $settings['defaultProjectTrust'] = 'always'
+$skills = if ($settings.ContainsKey('skills')) { @($settings['skills']) } else { @() }
+$settings['skills'] = @(@($skills) + $envxSkill | Select-Object -Unique)
 $settings | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $settingsPath -Encoding utf8
 Write-Output 'Pi is configured to use shared .agents resources, PowerShell, and the local three-note completion notifier. Run /reload.'

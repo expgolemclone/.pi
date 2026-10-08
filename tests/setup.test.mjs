@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, cpSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { homedir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import test, { after } from 'node:test';
 import notifier, { notificationCommand } from '../agent/extensions/notify.ts';
@@ -25,11 +26,33 @@ for (const path of ['setup.ps1', 'tools', 'agent/extensions', 'agent/mcp.json'])
 mkdirSync(join(home, '.agents/skills'), { recursive: true });
 writeFileSync(join(home, '.agents/settings.json'), '{}');
 writeFileSync(join(home, '.agents/AGENTS.md'), '# Test instructions\n');
+const mapRoot = join(home, 'local-repository-map');
+mkdirSync(join(mapRoot, 'profiles'), { recursive: true });
+cpSync(join(homedir(), 'local-repository-map/RepositoryMap.psm1'), join(mapRoot, 'RepositoryMap.psm1'));
+writeFileSync(join(mapRoot, 'profiles.json'), JSON.stringify({
+  schemaVersion: 1, profiles: {
+    company: { computerName: 'J250059A' },
+    nucbox: { computerName: 'NUCBOX_K8_PLUS' },
+  },
+}));
+const envxSkills = new Map();
+for (const profile of ['company', 'nucbox']) {
+  const envxRoot = join(home, profile, 'envx');
+  const skill = join(envxRoot, 'skills/envx');
+  mkdirSync(skill, { recursive: true });
+  writeFileSync(join(skill, 'SKILL.md'), '---\nname: envx\ndescription: Manage scoped environment variables.\n---\n');
+  writeFileSync(join(mapRoot, `profiles/${profile}.json`), JSON.stringify({
+    schemaVersion: 1, repositories: [{
+      repository: 'expgolemclone/envx', path: envxRoot, remote: 'https://github.com/expgolemclone/envx.git',
+    }],
+  }));
+  envxSkills.set(profile, skill);
+}
 const settingsPath = join(setupRoot, 'agent/settings.json');
 writeFileSync(settingsPath, JSON.stringify({ extensions: [], defaultProjectTrust: 'never', lastChangelogVersion: 'test-metadata' }));
 const readSettings = () => JSON.parse(readFileSync(settingsPath, 'utf8').replace(/^\uFEFF/, ''));
-const setup = () => execFileSync('pwsh', ['-NoProfile', '-File', join(setupRoot, 'setup.ps1')], {
-  encoding: 'utf8', env: { ...process.env, USERPROFILE: home },
+const setup = (computer = 'J250059A') => execFileSync('pwsh', ['-NoProfile', '-File', join(setupRoot, 'setup.ps1')], {
+  encoding: 'utf8', env: { ...process.env, USERPROFILE: home, COMPUTERNAME: computer },
 });
 const setupSoundPath = join(setupRoot, 'agent/sounds/ready.wav');
 
@@ -59,7 +82,7 @@ test('setup retires official plan mode and notifiers, generates one sound, and p
   assert.ok(!first.extensions.includes(notifyPath)); // loaded by discovery, not configured twice
   assert.equal(existsSync(join(setupRoot, 'agent/sounds/candidates')), false);
   for (const [key, value] of Object.entries(before)) {
-    if (!['extensions', 'defaultTools', 'defaultProjectTrust', 'defaultProvider', 'defaultModel', 'defaultThinkingLevel'].includes(key)) {
+    if (!['extensions', 'skills', 'defaultTools', 'defaultProjectTrust', 'defaultProvider', 'defaultModel', 'defaultThinkingLevel'].includes(key)) {
       assert.deepEqual(first[key], value);
     }
   }
@@ -76,6 +99,56 @@ test('setup supports absent or empty extension lists and preserves unrelated ent
     }
   } finally {
     writeFileSync(settingsPath, JSON.stringify(before, null, 2));
+  }
+});
+
+test('setup references one canonical envx skill on each PC and preserves other selections', async () => {
+  const before = readSettings();
+  const { loadSkillsFromDir } = await import(pathToFileURL(join(packageRoot, 'dist/core/skills.js')).href);
+  try {
+    for (const [profile, computer] of [['company', 'J250059A'], ['nucbox', 'NUCBOX_K8_PLUS']]) {
+      const skill = envxSkills.get(profile);
+      writeFileSync(settingsPath, JSON.stringify({ ...before, skills: ['./custom-skills', skill, skill] }));
+      setup(computer);
+      assert.deepEqual(readSettings().skills, ['./custom-skills', skill]);
+      const found = loadSkillsFromDir({ dir: skill, source: 'user' });
+      assert.deepEqual(found.diagnostics, []);
+      assert.deepEqual(found.skills.map(({ name }) => name), ['envx']);
+      setup(computer);
+      assert.deepEqual(readSettings().skills, ['./custom-skills', skill]);
+    }
+  } finally {
+    writeFileSync(settingsPath, JSON.stringify(before));
+  }
+});
+
+test('setup rejects missing envx mappings or skills without changing settings', () => {
+  const mapPath = join(mapRoot, 'profiles/company.json');
+  const beforeMap = readFileSync(mapPath);
+  const beforeSettings = readFileSync(settingsPath);
+  const skillFile = join(envxSkills.get('company'), 'SKILL.md');
+  const beforeSkill = readFileSync(skillFile);
+  const rejectSetup = (computer, pattern) => {
+    const result = spawnSync('pwsh', ['-NoProfile', '-File', join(setupRoot, 'setup.ps1')], {
+      encoding: 'utf8', env: { ...process.env, USERPROFILE: home, COMPUTERNAME: computer },
+    });
+    assert.ifError(result.error);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, pattern);
+  };
+  try {
+    writeFileSync(mapPath, JSON.stringify({ schemaVersion: 1, repositories: [] }));
+    rejectSetup('J250059A', /Exactly one mapped envx repository is required/);
+    assert.deepEqual(readFileSync(settingsPath), beforeSettings);
+    writeFileSync(mapPath, beforeMap);
+    rmSync(skillFile);
+    rejectSetup('J250059A', /Mapped envx skill is missing/);
+    assert.deepEqual(readFileSync(settingsPath), beforeSettings);
+    rejectSetup('UNKNOWN_PC', /No repository profile is bound/);
+    assert.deepEqual(readFileSync(settingsPath), beforeSettings);
+  } finally {
+    writeFileSync(mapPath, beforeMap);
+    writeFileSync(skillFile, beforeSkill);
   }
 });
 
