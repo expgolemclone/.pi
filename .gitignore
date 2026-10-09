@@ -1,6 +1,5 @@
 *
 !/.gitignore
-!/README.md
 !/setup.ps1
 !/agent/
 /agent/*
