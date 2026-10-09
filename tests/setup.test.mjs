@@ -108,7 +108,7 @@ test('setup references one canonical envx skill on each PC and preserves other s
   try {
     for (const [profile, computer] of [['company', 'J250059A'], ['nucbox', 'NUCBOX_K8_PLUS']]) {
       const skill = envxSkills.get(profile);
-      writeFileSync(settingsPath, JSON.stringify({ ...before, skills: ['./custom-skills', skill, skill] }));
+      writeFileSync(settingsPath, JSON.stringify({ ...before, skills: ['./custom-skills', 'Z:/retired envx/skills/envx', 'Y:\\moved\\skills\\envx\\SKILL.md', skill, skill] }));
       setup(computer);
       assert.deepEqual(readSettings().skills, ['./custom-skills', skill]);
       const found = loadSkillsFromDir({ dir: skill, source: 'user' });
@@ -138,7 +138,7 @@ test('setup rejects missing envx mappings or skills without changing settings', 
   };
   try {
     writeFileSync(mapPath, JSON.stringify({ schemaVersion: 1, repositories: [] }));
-    rejectSetup('J250059A', /Exactly one mapped envx repository is required/);
+    rejectSetup('J250059A', /Exactly one mapped repository is required/);
     assert.deepEqual(readFileSync(settingsPath), beforeSettings);
     writeFileSync(mapPath, beforeMap);
     rmSync(skillFile);

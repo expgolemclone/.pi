@@ -1,13 +1,14 @@
 {
   "mcpServers": {
     "kintone": {
-      "command": "C:/Program Files/nodejs/node.exe",
+      "command": "pwsh",
       "args": [
-        "~/AppData/Local/envx/runtimes/node/node_modules/@expgolemclone/envx-runtime/cli.mjs",
-        "run",
-        "C:/dev/kintone/kintone-workspace/dist/server/main.js"
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "$ErrorActionPreference = 'Stop'; Import-Module (Join-Path $HOME 'local-repository-map/RepositoryMap.psm1'); $repository = Get-LocalRepositoryPath 'kintone-workspace'; Set-Location -LiteralPath (Split-Path -Parent $repository); & node (Join-Path $env:LOCALAPPDATA 'envx/runtimes/node/node_modules/@expgolemclone/envx-runtime/cli.mjs') run (Join-Path $repository 'dist/server/main.js'); exit $LASTEXITCODE"
       ],
-      "cwd": "C:/dev/kintone",
       "timeout": 1800
     }
   }
