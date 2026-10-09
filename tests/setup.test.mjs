@@ -20,7 +20,7 @@ const home = mkdtempSync('C:/dev/tmp/pi-setup-test-');
 after(() => rmSync(home, { recursive: true, force: true }));
 const setupRoot = join(home, '.pi');
 mkdirSync(join(setupRoot, 'agent'), { recursive: true });
-for (const path of ['setup.ps1', 'tools', 'agent/extensions', 'agent/mcp.json']) {
+for (const path of ['setup.ps1', 'tools', 'agent/extensions', 'agent/mcp.json', 'agent/COMPACTION.md']) {
   cpSync(join(root, path), join(setupRoot, path), { recursive: true });
 }
 mkdirSync(join(home, '.agents/skills'), { recursive: true });
@@ -159,6 +159,10 @@ test('Pi discovers the local notifier once without official plan mode or notifie
   const notifications = result.extensions.filter(({ path }) => path === join(setupRoot, 'agent/extensions/notify.ts'));
   assert.equal(notifications.length, 1);
   assert.deepEqual([...notifications[0].handlers.keys()], ['agent_settled']);
+  const compactions = result.extensions.filter(({ path }) => path === join(setupRoot, 'agent/extensions/custom-compaction.ts'));
+  assert.equal(compactions.length, 1);
+  assert.deepEqual([...compactions[0].handlers.keys()], ['session_before_compact']);
+  assert.equal(readFileSync(join(setupRoot, 'agent/COMPACTION.md'), 'utf8'), readFileSync(join(root, 'agent/COMPACTION.md'), 'utf8'));
   assert.ok(result.extensions.every(({ path }) => path !== oldNotifyPath && path !== planPath));
   for (const extension of result.extensions) {
     assert.ok(!extension.commands.has('plan'));

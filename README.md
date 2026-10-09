@@ -26,6 +26,17 @@ Windows native Pi setup using ChatGPT OAuth. Verified with Pi 1.0.0 and PowerShe
 - Retire `C:/dev/kintone/.codex/config.toml` only after verification. Home-level `~/.codex` is not part of this migration.
 - `setup.ps1` preserves this configuration; it does not generate another copy. Other PCs need their own mapped workspace and installed bootstrap before enabling the server.
 
+## Compaction prompt
+
+Edit `agent/COMPACTION.md` to change the compaction system prompt. It is read on every compaction, so prompt edits do not require a reload.
+
+- `agent/extensions/custom-compaction.ts` is auto-discovered. Run `/reload` once after adding or changing the extension.
+- Manual `/compact`, automatic threshold compaction, and context-overflow recovery use the same prompt. `/tree` branch summaries and the normal agent system prompt are unchanged.
+- One request combines the previous summary and Pi's selected history, including a split-turn prefix. `/compact` additional instructions are passed in the same request. No built-in headings, update rules, split-turn prompt, or automatic file-list footer are added.
+- Pi still selects and preserves recent messages and persists the checkpoint and model usage. Existing transcripts are not deleted. The selected model, thinking level, and resolved output budget are used.
+- Missing/empty prompt, failed/cancelled generation, incomplete/empty output, and tool calls cancel compaction visibly, never fall back to the native prompt. Retry compaction after correcting the error.
+- Verification: `node --test tests/*.test.mjs`. These are independent Pi CLI/bootstrap diagnostics using its npm-owned package graph, not shared project dependencies. Compaction tests use Pi's loader and an in-memory faux provider, not credentials, live sessions or paid model calls.
+
 ## Input-ready notification
 
 `agent/extensions/notify.ts` is auto-discovered. `setup.ps1` removes the old official notifier and generates the adopted three-note wood-like chime. Run `/reload` after setup.
