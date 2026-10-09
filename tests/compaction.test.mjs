@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
@@ -15,17 +15,18 @@ const { prepareCompaction } = await import(pathToFileURL(join(packageRoot, 'dist
 const { fauxProvider, fauxAssistantMessage } = await import(pathToFileURL(
   join(packageRoot, 'node_modules/@earendil-works/pi-ai/dist/providers/faux.js'),
 ));
-const systemPrompt = readFileSync(join(root, 'agent/COMPACTION.md'), 'utf8').trim();
+const { loadPromptTemplates } = await import(pathToFileURL(join(packageRoot, 'dist/core/prompt-templates.js')));
+const bundlePath = 'agent/extensions/custom-compaction';
+const systemPrompt = readFileSync(join(root, bundlePath, 'COMPACTION.md'), 'utf8').trim();
 
 async function fixture(t) {
   const directory = mkdtempSync(join('C:/dev/tmp/', 'pi-compaction-test-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const agentDir = join(directory, 'agent');
-  mkdirSync(join(agentDir, 'extensions'), { recursive: true });
-  const extensionPath = join(agentDir, 'extensions/custom-compaction.ts');
-  cpSync(join(root, 'agent/extensions/custom-compaction.ts'), extensionPath);
-  const promptPath = join(agentDir, 'COMPACTION.md');
-  writeFileSync(promptPath, systemPrompt);
+  const bundle = join(agentDir, 'extensions/custom-compaction');
+  cpSync(join(root, bundlePath), bundle, { recursive: true });
+  const extensionPath = join(bundle, 'index.ts');
+  const promptPath = join(bundle, 'COMPACTION.md');
   const loaded = await loadExtensions([extensionPath], directory);
   assert.deepEqual(loaded.errors, []);
   assert.equal(loaded.extensions.length, 1);
@@ -175,12 +176,19 @@ test('UI failure cannot cause a native prompt fallback', async (t) => {
   assert.equal(f.requests.length, 0);
 });
 
-test('standard discovery loads one compaction extension without extra settings', async (t) => {
+test('standard discovery loads one bundled extension and no prompt command', async (t) => {
   const f = await fixture(t);
   const discovered = await discoverAndLoadExtensions([], f.directory, f.agentDir);
   assert.deepEqual(discovered.errors, []);
   assert.equal(discovered.extensions.length, 1);
   assert.deepEqual([...discovered.extensions[0].handlers.keys()], ['session_before_compact']);
+  assert.equal(discovered.extensions[0].path, join(f.agentDir, 'extensions/custom-compaction/index.ts'));
+  const prompts = loadPromptTemplates({
+    cwd: f.directory, agentDir: f.agentDir, promptPaths: [], includeDefaults: true,
+  });
+  assert.deepEqual(prompts, { templates: [], diagnostics: [] });
+  assert.equal(existsSync(join(root, 'agent/COMPACTION.md')), false);
+  assert.equal(existsSync(join(root, 'agent/extensions/custom-compaction.ts')), false);
 });
 
 for (const scenario of ['manual', 'threshold', 'incomplete']) {

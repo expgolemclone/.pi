@@ -20,7 +20,7 @@ const home = mkdtempSync('C:/dev/tmp/pi-setup-test-');
 after(() => rmSync(home, { recursive: true, force: true }));
 const setupRoot = join(home, '.pi');
 mkdirSync(join(setupRoot, 'agent'), { recursive: true });
-for (const path of ['setup.ps1', 'tools', 'agent/extensions', 'agent/mcp.json', 'agent/COMPACTION.md']) {
+for (const path of ['setup.ps1', 'tools', 'agent/extensions', 'agent/mcp.json']) {
   cpSync(join(root, path), join(setupRoot, path), { recursive: true });
 }
 mkdirSync(join(home, '.agents/skills'), { recursive: true });
@@ -159,10 +159,13 @@ test('Pi discovers the local notifier once without official plan mode or notifie
   const notifications = result.extensions.filter(({ path }) => path === join(setupRoot, 'agent/extensions/notify.ts'));
   assert.equal(notifications.length, 1);
   assert.deepEqual([...notifications[0].handlers.keys()], ['agent_settled']);
-  const compactions = result.extensions.filter(({ path }) => path === join(setupRoot, 'agent/extensions/custom-compaction.ts'));
+  const compactions = result.extensions.filter(({ path }) => path === join(setupRoot, 'agent/extensions/custom-compaction/index.ts'));
   assert.equal(compactions.length, 1);
   assert.deepEqual([...compactions[0].handlers.keys()], ['session_before_compact']);
-  assert.equal(readFileSync(join(setupRoot, 'agent/COMPACTION.md'), 'utf8'), readFileSync(join(root, 'agent/COMPACTION.md'), 'utf8'));
+  const promptPath = 'agent/extensions/custom-compaction/COMPACTION.md';
+  assert.deepEqual(readFileSync(join(setupRoot, promptPath)), readFileSync(join(root, promptPath)));
+  assert.equal(existsSync(join(setupRoot, 'agent/COMPACTION.md')), false);
+  assert.equal(existsSync(join(setupRoot, 'agent/extensions/custom-compaction.ts')), false);
   assert.ok(result.extensions.every(({ path }) => path !== oldNotifyPath && path !== planPath));
   for (const extension of result.extensions) {
     assert.ok(!extension.commands.has('plan'));
@@ -172,9 +175,9 @@ test('Pi discovers the local notifier once without official plan mode or notifie
   }
 });
 
-function register(exec) {
+function register(exec, extension = notifier) {
   const handlers = new Map();
-  notifier({ on: (event, handler) => handlers.set(event, handler), exec });
+  extension({ on: (event, handler) => handlers.set(event, handler), exec });
   assert.deepEqual([...handlers.keys()], ['agent_settled']);
   return handlers.get('agent_settled');
 }
@@ -243,11 +246,15 @@ test('real notification plays under Restricted without a .ps1 or policy relaxati
   assert.ifError(blocked.error);
   assert.equal(blocked.status, 1);
   assert.match(blocked.stderr, /running scripts is disabled/i);
+  setup();
+  const { default: isolatedNotifier } = await import(pathToFileURL(join(setupRoot, 'agent/extensions/notify.ts')));
   const settled = register(async (command, args, options) => {
+    const script = Buffer.from(args[3], 'base64').toString('utf16le');
+    assert.ok(script.includes(`$SoundPath = '${setupSoundPath}'`));
     assert.ok(!args.includes('-File'));
     assert.ok(!args.includes('-ExecutionPolicy'));
     const stdout = execFileSync(command, ['-ExecutionPolicy', 'Restricted', ...args], { ...options, encoding: 'utf8' });
     return { code: 0, killed: false, stdout, stderr: '' };
-  });
+  }, isolatedNotifier);
   await settled({ type: 'agent_settled' }, { mode: 'tui' });
 });

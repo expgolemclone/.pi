@@ -5,12 +5,14 @@
 !/agent/
 /agent/*
 !/agent/mcp.json
-!/agent/COMPACTION.md
 !/agent/extensions/
 /agent/extensions/*
 !/agent/extensions/agents-settings.ts
 !/agent/extensions/notify.ts
-!/agent/extensions/custom-compaction.ts
+!/agent/extensions/custom-compaction/
+/agent/extensions/custom-compaction/*
+!/agent/extensions/custom-compaction/index.ts
+!/agent/extensions/custom-compaction/COMPACTION.md
 !/tests/
 /tests/*
 !/tests/agents-settings.test.mjs

@@ -28,9 +28,9 @@ Windows native Pi setup using ChatGPT OAuth. Verified with Pi 1.0.0 and PowerShe
 
 ## Compaction prompt
 
-Edit `agent/COMPACTION.md` to change the compaction system prompt. It is read on every compaction, so prompt edits do not require a reload.
+Edit `agent/extensions/custom-compaction/COMPACTION.md` to change the compaction system prompt. It is read on every compaction, so prompt edits do not require a reload.
 
-- `agent/extensions/custom-compaction.ts` is auto-discovered. Run `/reload` once after adding or changing the extension.
+- `agent/extensions/custom-compaction/index.ts` is auto-discovered. The extension and its internal prompt live together; the prompt is not a slash-command template. Run `/reload` once after adding or changing the extension.
 - Manual `/compact`, automatic threshold compaction, and context-overflow recovery use the same prompt. `/tree` branch summaries and the normal agent system prompt are unchanged.
 - One request combines the previous summary and Pi's selected history, including a split-turn prefix. `/compact` additional instructions are passed in the same request. No built-in headings, update rules, split-turn prompt, or automatic file-list footer are added.
 - Pi still selects and preserves recent messages and persists the checkpoint and model usage. Existing transcripts are not deleted. The selected model, thinking level, and resolved output budget are used.

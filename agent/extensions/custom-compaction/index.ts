@@ -9,7 +9,7 @@ export default function (pi: ExtensionAPI) {
       event.signal.throwIfAborted();
       const model = ctx.model;
       if (!model) throw new Error("No model selected for compaction.");
-      const systemPrompt = readFileSync(new URL("../COMPACTION.md", import.meta.url), "utf8").trim();
+      const systemPrompt = readFileSync(new URL("./COMPACTION.md", import.meta.url), "utf8").trim();
       if (!systemPrompt) throw new Error("COMPACTION.md must not be empty.");
 
       const { preparation, customInstructions, signal } = event;
