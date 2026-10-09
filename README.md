@@ -1,62 +1,62 @@
-# Pi on Windows
+# WindowsでPiを使う
 
-Windows native Pi setup using ChatGPT OAuth. Verified with Pi 1.0.0 and PowerShell 7.
+ChatGPT OAuthを使用したWindowsネイティブ環境向けのPi設定です. Pi 1.0.0とPowerShell 7で動作確認済みです.
 
-## Setup
+## セットアップ
 
-1. Install Pi if absent: `npm install --global --ignore-scripts '@earendil-works/pi-coding-agent'`.
-2. Clone this private repository into `~/.pi` using `jj`. Existing installations already use this directory.
-3. Prepare `~/.agents` and the current-PC `local-repository-map` with its envx checkout, then run `./setup.ps1` in PowerShell 7.
-4. Start `pi`, use `/login` to select OpenAI and Sign in with ChatGPT, then complete browser login.
+1. Piが未導入の場合はインストールします: `npm install --global --ignore-scripts '@earendil-works/pi-coding-agent'`.
+2. `jj`を使い, この非公開リポジトリを`~/.pi`にクローンします. 既存の環境でもこのディレクトリを使用しています.
+3. `~/.agents`と, envxのチェックアウト先を含む現在のPC用の`local-repository-map`を準備し, PowerShell 7で`./setup.ps1`を実行します.
+4. `pi`を起動し, `/login`でOpenAIとSign in with ChatGPTを選択して, ブラウザでログインを完了します.
 
-## Single source of settings
+## 設定の一元管理
 
-- `agent/extensions/agents-settings.ts` reads `~/.agents/settings.json` at startup and before input. Model and reasoning effort are applied without duplicating defaults in Pi settings.
-- `~/.agents/AGENTS.md` is read into system context for every turn. Common skills are discovered from `~/.agents/skills/`. `setup.ps1` references the canonical `envx/skills/envx` through the current-PC RepositoryMap without copying it.
-- Repository-specific skills live in each repository's `skills/`, selected by `.pi/settings.json` with `"skills": ["../skills"]`. Start Pi from that repository to advertise them; changing a tool's cwd does not change Pi's resource scope. From a parent directory, resolve the target through RepositoryMap and read its `RULES.md` and relevant skill explicitly.
-- `setup.ps1` generates Pi's local `agent/settings.json`, enabling PowerShell and file tools while preserving Pi runtime metadata. Edit this script to change the managed tool selection, then rerun it.
-- GitHub stores the source repositories. Pi reads their local checkouts. Synchronize with `jj` before use when remote changes must be reflected. Direct GitHub reads are not configured.
+- `agent/extensions/agents-settings.ts`は起動時と入力前に`~/.agents/settings.json`を読み込みます. Pi側の設定に既定値を重複して保存せず, モデルと推論の強度を適用します.
+- `~/.agents/AGENTS.md`は毎ターンのシステムコンテキストに読み込まれます. 共通スキルは`~/.agents/skills/`から検出されます. `setup.ps1`は現在のPC用のRepositoryMapを通じて正本の`envx/skills/envx`を参照し, コピーしません.
+- リポジトリ固有のスキルは各リポジトリの`skills/`に置き, `.pi/settings.json`の`"skills": ["../skills"]`で指定します. Piに認識させるには対象リポジトリから起動してください. ツールのcwdを変えてもPiのリソース参照範囲は変わりません. 親ディレクトリから作業する場合はRepositoryMapで対象を特定し, その`RULES.md`と関連スキルを明示的に読み込みます.
+- `setup.ps1`はPiのローカル設定`agent/settings.json`を生成し, Piの実行時メタデータを保持しながらPowerShellとファイル操作ツールを有効にします. 管理対象のツールを変更する場合はこのスクリプトを編集し, 再実行してください.
+- ソースリポジトリはGitHubに保存し, Piはローカルのチェックアウト先を読み込みます. リモートの変更を反映する必要がある場合は, 使用前に`jj`で同期してください. GitHubから直接読み込む設定はありません.
 
 ## Kintone MCP
 
-`agent/mcp.json` is the credential-free user-level configuration for the company PC's mapped workspace at `C:/dev/kintone`. It launches the built server through the installed envx Node bootstrap, independently of Codex. Credentials remain in the workspace's local configuration, never in this file.
+`agent/mcp.json`は, 会社PCでマッピングされた`C:/dev/kintone`のワークスペース用のユーザーレベル設定です. 認証情報は含みません. インストール済みのenvx Nodeブートストラップを通じてビルド済みサーバーを起動し, Codexには依存しません. 認証情報はワークスペースのローカル設定に保持し, このファイルには保存しません.
 
-- The server is available in every Pi project without changing project trust. Pi automatically enables codemode for its tools.
-- After synchronization, run `pi mcp list` from `C:/dev/kintone` to verify the connection, then `/reload` in an existing Pi session.
-- Retire `C:/dev/kintone/.codex/config.toml` only after verification. Home-level `~/.codex` is not part of this migration.
-- `setup.ps1` preserves this configuration; it does not generate another copy. Other PCs need their own mapped workspace and installed bootstrap before enabling the server.
+- プロジェクトの信頼設定を変更せずに, すべてのPiプロジェクトでサーバーを利用できます. Piはサーバーのツールに対してcodemodeを自動的に有効にします.
+- 同期後は`C:/dev/kintone`から`pi mcp list`を実行して接続を確認し, 既存のPiセッションで`/reload`を実行してください.
+- `C:/dev/kintone/.codex/config.toml`は検証後にのみ廃止してください. ホームディレクトリの`~/.codex`は今回の移行対象ではありません.
+- `setup.ps1`はこの設定を保持し, 別のコピーを生成しません. 別のPCでサーバーを有効にする場合は, そのPC用のワークスペースのマッピングとブートストラップの導入が必要です.
 
-## Compaction prompt
+## コンテキスト圧縮用プロンプト
 
-Edit `agent/extensions/custom-compaction/COMPACTION.md` to change the compaction system prompt. It is read on every compaction, so prompt edits do not require a reload.
+圧縮用のシステムプロンプトを変更するには`agent/extensions/custom-compaction/COMPACTION.md`を編集します. 圧縮のたびに読み込まれるため, プロンプトの編集だけならリロードは不要です.
 
-- `agent/extensions/custom-compaction/index.ts` is auto-discovered. The extension and its internal prompt live together; the prompt is not a slash-command template. Run `/reload` once after adding or changing the extension.
-- Manual `/compact`, automatic threshold compaction, and context-overflow recovery use the same prompt. `/tree` branch summaries and the normal agent system prompt are unchanged.
-- One request combines the previous summary and Pi's selected history, including a split-turn prefix. `/compact` additional instructions are passed in the same request. No built-in headings, update rules, split-turn prompt, or automatic file-list footer are added.
-- Pi still selects and preserves recent messages and persists the checkpoint and model usage. Existing transcripts are not deleted. The selected model, thinking level, and resolved output budget are used.
-- Missing/empty prompt, failed/cancelled generation, incomplete/empty output, and tool calls cancel compaction visibly, never fall back to the native prompt. Retry compaction after correcting the error.
-- Verification: `node --test tests/*.test.mjs`. These are independent Pi CLI/bootstrap diagnostics using its npm-owned package graph, not shared project dependencies. Compaction tests use Pi's loader and an in-memory faux provider, not credentials, live sessions or paid model calls.
+- `agent/extensions/custom-compaction/index.ts`は自動検出されます. 拡張機能と内部プロンプトは同じ場所に置きます. このプロンプトはスラッシュコマンドのテンプレートではありません. 拡張機能を追加または変更した後は, 一度`/reload`を実行してください.
+- 手動の`/compact`, しきい値による自動圧縮, コンテキスト超過からの復旧は同じプロンプトを使用します. `/tree`の分岐要約と通常のエージェント用システムプロンプトは変更しません.
+- 前回の要約とPiが選択した履歴を1つのリクエストにまとめます. 途中で分割されたターンの前半も含みます. `/compact`の追加指示も同じリクエストに渡します. 組み込みの見出し, 更新ルール, 分割ターン用プロンプト, ファイル一覧の自動フッターは追加しません.
+- 直近のメッセージの選択と保持, チェックポイントとモデル使用量の保存は引き続きPiが行います. 既存の会話記録は削除しません. 選択したモデル, 思考レベル, 解決済みの出力上限を使用します.
+- プロンプトの欠落や空の内容, 生成の失敗やキャンセル, 不完全または空の出力, ツール呼び出しがあった場合は, 明示的に通知して圧縮を中止します. 標準プロンプトへのフォールバックは行いません. エラーを修正してから圧縮を再試行してください.
+- 検証: `node --test tests/*.test.mjs`. これらはnpm管理のパッケージ依存関係を使用する, 独立したPi CLIとブートストラップの診断テストです. プロジェクト共通依存は使用しません. 圧縮テストはPiのローダーとメモリ内の模擬プロバイダーを使用し, 認証情報, 実セッション, 有料モデル呼び出しは使用しません.
 
-## Input-ready notification
+## 入力待ち通知
 
-`agent/extensions/notify.ts` is auto-discovered. `setup.ps1` removes the old official notifier and generates the adopted three-note wood-like chime. Run `/reload` after setup.
+`agent/extensions/notify.ts`は自動検出されます. `setup.ps1`は旧公式通知機能を削除し, 採用済みの木製打楽器風の3音チャイムを生成します. セットアップ後に`/reload`を実行してください.
 
-- Notifies once at `agent_settled`, after automatic retries and continuations, only in native Windows interactive mode. Mid-run confirmation dialogs are not covered.
-- A Windows toast titled `Pi` says `Ready for input`. Its audio is explicitly silent; only `agent/sounds/ready.wav` plays. Windows' global notification sound settings are unchanged.
-- Direct WAV playback is independent of Do not disturb; Windows notification settings can suppress the banner, not the chime. Use system/application volume controls to mute it.
-- PowerShell receives a direct UTF-16LE `-EncodedCommand`, not a `.ps1` file. It works with `Restricted` without changing execution policy. XML is loaded directly, avoiding the official example's live DOM collection mutation. Process failures are reported; no fallback sound is used.
+- 自動再試行と継続処理が完了した後の`agent_settled`で一度だけ通知します. 対象はWindowsネイティブの対話モードのみです. 実行途中の確認ダイアログは対象外です.
+- Windowsのトースト通知はタイトルが`Pi`, 本文が`Ready for input`です. トースト自体の音声は明示的に無効にし, `agent/sounds/ready.wav`だけを再生します. Windows全体の通知音設定は変更しません.
+- WAVの直接再生は応答不可モードに依存しません. Windowsの通知設定でバナーは抑制できますが, チャイムは抑制できません. 消音にはシステムまたはアプリケーションの音量設定を使用してください.
+- PowerShellには`.ps1`ファイルではなく, UTF-16LEの`-EncodedCommand`を直接渡します. 実行ポリシーを変更せずに`Restricted`でも動作します. XMLは直接読み込み, 公式サンプルでの動的なDOMコレクションの変更を避けます. プロセスの失敗は報告し, 代替の通知音は使用しません.
 
-## Completion sound
+## 完了音
 
-`node tools/sounds.mjs` regenerates `agent/sounds/ready.wav` and `validation.json`. Generated files are not tracked. Parameters live only in `tools/sounds.mjs`; rejected candidates are removed by setup.
+`node tools/sounds.mjs`は`agent/sounds/ready.wav`と`validation.json`を再生成します. 生成ファイルはバージョン管理しません. パラメーターは`tools/sounds.mjs`だけで管理し, 不採用の候補はセットアップ時に削除します.
 
-- ZzFX 1.4.0 is pinned to commit `aab7e2b6b9086746b6e55fab75c75ce03e716c49`. `tools/vendor/zzfx.mjs` extracts upstream `buildSamples` without browser initialization or synthesis changes. Its MIT license is included.
-- The adopted sound ascends through C4, E4, G4 and is 0.448 seconds, mono, 44.1 kHz, 16-bit PCM. Both component amplitudes are quadrupled (+12.04 dB from the original) for a peak near -0.40 dBFS, without changing timbre or system volume. Only about 0.4 dB of peak headroom remains; further gain requires changing the waveform to avoid clipping. The writer uses correct mono block alignment instead of upstream `wav.js`'s fixed value of 4 and rejects invalid or clipping samples.
-- Run `node tools/preview-sound.mjs` to preview the same toast and chime as Pi, or `node --test tests/*.test.mjs` to verify notification loading, mode filtering, single playback under `Restricted`, WAV validity, reproducibility, and existing configuration.
+- ZzFX 1.4.0はコミット`aab7e2b6b9086746b6e55fab75c75ce03e716c49`に固定しています. `tools/vendor/zzfx.mjs`は上流の`buildSamples`を抽出したもので, ブラウザの初期化処理は含まず, 合成処理も変更していません. MITライセンスを同梱しています.
+- 採用した音はC4, E4, G4と上昇し, 長さは0.448秒, モノラル, 44.1 kHz, 16-bit PCMです. 音色やシステム音量を変えずに両成分の振幅を4倍にし, 元の音から+12.04 dB増幅して, ピークを約-0.40 dBFSにしています. ピークの余裕は約0.4 dBしかないため, さらに増幅する場合はクリッピングを避けるために波形を変更する必要があります. WAV書き出し処理は上流の`wav.js`の固定値4ではなく, 正しいモノラルのブロックアラインメントを使用し, 不正なサンプルやクリッピングするサンプルを拒否します.
+- `node tools/preview-sound.mjs`でPiと同じトーストとチャイムを試聴できます. `node --test tests/*.test.mjs`で通知機能の読み込み, モードによる対象制限, `Restricted`での単一再生, WAVの妥当性, 再現性, 既存設定を検証できます.
 
-## Boundaries
+## 適用範囲と制約
 
-- `setup.ps1` sets `defaultProjectTrust` to `always`: project skills, extensions and settings load without confirmation. Explicit CLI decisions, extension decisions and saved decisions in local `agent/trust.json` take precedence. This does not sandbox their execution.
-- Pi runs tools with the current user's operating-system permissions. No sandbox or approval policy is supplied by `.agents/settings.json`.
-- `provider`, `model`, `thinkingLevel` and `serviceTier` are the only `.agents/settings.json` keys. `priority` requests the OpenAI priority service tier. The model requires Pi's OpenAI OAuth credential.
-- OAuth credentials and session histories stay local. The tracked-file allowlist excludes `auth.json`, sessions, caches, generated settings and downloaded binaries. No GitHub Actions are used.
+- `setup.ps1`は`defaultProjectTrust`を`always`に設定し, プロジェクトのスキル, 拡張機能, 設定を確認なしで読み込みます. CLIや拡張機能による明示的な判断, ローカルの`agent/trust.json`に保存した判断が優先されます. この設定は実行をサンドボックス化するものではありません.
+- Piは現在のユーザーのOS権限でツールを実行します. `.agents/settings.json`はサンドボックスや承認ポリシーを提供しません.
+- `.agents/settings.json`のキーは`provider`, `model`, `thinkingLevel`, `serviceTier`のみです. `priority`はOpenAIの優先サービス階層を要求します. このモデルにはPiのOpenAI OAuth認証情報が必要です.
+- OAuth認証情報とセッション履歴はローカルに保持します. バージョン管理対象ファイルの許可リストからは`auth.json`, セッション, キャッシュ, 生成された設定, ダウンロードしたバイナリを除外しています. GitHub Actionsは使用しません.
