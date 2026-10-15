@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { access, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -42,17 +43,54 @@ export async function publishAccountsRuntime(stagedRuntime, agentDirectory) {
   return target;
 }
 
+export async function runCliProbe(cli, fixture, directory) {
+  const env = { PI_CODING_AGENT_DIR: join(directory, 'agent'), PI_OFFLINE: '1' };
+  for (const name of ['PATH', 'SystemRoot', 'USERPROFILE', 'HOME', 'TEMP', 'TMP']) {
+    if (process.env[name] !== undefined) env[name] = process.env[name];
+  }
+  await new Promise((resolveResult, reject) => {
+    const child = spawn(process.execPath, [cli,
+      '--offline', '--no-extensions', '--no-skills', '--no-prompt-templates', '--no-themes',
+      '--no-context-files', '--no-mcp', '--no-session', '--no-tools', '--no-approve',
+      '-e', fixture, '-p', '/accounts-probe-fixture',
+    ], { cwd: directory, env, stdio: ['ignore', 'ignore', 'ignore', 'ipc'], windowsHide: true });
+    let ready = false, verified = false, failure;
+    const stop = (message) => { failure ??= new Error(message); child.kill(); };
+    let timer = setTimeout(() => stop('Accounts CLI did not become ready.'), 30_000);
+    child.on('message', value => {
+      if (!ready && value?.kind === 'ready') {
+        ready = true;
+        clearTimeout(timer);
+        timer = setTimeout(() => stop('Accounts CLI probe timed out.'), 60_000);
+      } else if (ready && !verified && value?.kind === 'pong') verified = true;
+      else stop('Accounts CLI probe returned an invalid result.');
+    });
+    child.on('error', () => stop('Accounts CLI could not be launched.'));
+    child.once('close', code => {
+      clearTimeout(timer);
+      if (failure || code !== 0 || !verified) reject(failure ?? new Error('Accounts CLI exited without verified pong.'));
+      else resolveResult();
+    });
+  });
+}
+
 export async function verifyAccountsRuntime(extensionDirectory, sdkEntry) {
   const sdk = await import(pathToFileURL(resolve(sdkEntry)).href);
   const directory = await mkdtemp(join(tmpdir(), 'pi-accounts-install-check-'));
-  const server = createServer((_request, response) => {
-    response.writeHead(200, { 'content-type': 'text/event-stream' });
-    const item = { type: 'message', id: 'offline', role: 'assistant', content: [{ type: 'output_text', text: 'pong', annotations: [] }] };
-    for (const event of [
-      { type: 'response.output_item.done', item },
-      { type: 'response.completed', response: { status: 'completed', output: [item] } },
-    ]) response.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
-    response.end();
+  let requests = 0, body = '';
+  const server = createServer((request, response) => {
+    requests++;
+    request.setEncoding('utf8');
+    request.on('data', chunk => { body += chunk; });
+    request.on('end', () => {
+      response.writeHead(200, { 'content-type': 'text/event-stream' });
+      const item = { type: 'message', id: 'offline', role: 'assistant', content: [{ type: 'output_text', text: 'pong', annotations: [] }] };
+      for (const event of [
+        { type: 'response.output_item.done', item },
+        { type: 'response.completed', response: { status: 'completed', output: [item] } },
+      ]) response.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+      response.end();
+    });
   });
   try {
     const runtime = join(extensionDirectory, 'runtime');
@@ -79,11 +117,24 @@ export async function verifyAccountsRuntime(extensionDirectory, sdkEntry) {
       baseUrl: `http://127.0.0.1:${server.address().port}/v1`, reasoning: false, input: ['text'],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 8192, maxTokens: 32,
     };
-    await writeFile(fixture, `import {runProbeProcess} from ${JSON.stringify(pathToFileURL(join(chunks, chunk)).href)};\nexport default function(pi){pi.registerCommand('accounts-probe-fixture',{description:'Offline install check',handler:async()=>{await runProbeProcess(${JSON.stringify(model)},{apiKey:'offline-install-fixture'},new AbortController().signal)}})}`);
-    const probeLoader = makeLoader(fixture);
-    await probeLoader.reload();
-    assert.deepEqual(probeLoader.getExtensions().errors, []);
-    await probeLoader.getExtensions().extensions[0].commands.get('accounts-probe-fixture').handler('', {});
+    await writeFile(fixture, `import {runProbeProcess} from ${JSON.stringify(pathToFileURL(join(chunks, chunk)).href)};
+export default function(pi){
+  pi.on('session_start',()=>process.send({kind:'ready'}));
+  pi.registerCommand('accounts-probe-fixture',{description:'Offline install check',handler:async()=>{
+    try {const result=await runProbeProcess(${JSON.stringify(model)},{apiKey:'offline-install-fixture'},new AbortController().signal);process.send({kind:result},()=>process.disconnect());}
+    catch {process.send({kind:'failed'},()=>process.disconnect());}
+  }});
+}`);
+    // The SDK loader above checks registration, but uses aliases. The shipped CLI
+    // uses virtual modules and must exercise the lazy probe too, without peer copies.
+    const hostRoot = sdk.getPackageDir();
+    const host = JSON.parse(await readFile(join(hostRoot, 'package.json'), 'utf8'));
+    await runCliProbe(join(hostRoot, host.bin.pi), fixture, directory);
+    assert.equal(requests, 1, 'Expected exactly one isolated probe request');
+    const payload = JSON.parse(body);
+    assert.equal(payload.tools, undefined);
+    assert.match(JSON.stringify(payload.input), /ping/);
+    assert.doesNotMatch(body, /AGENTS|PLAN|original conversation|powershell/);
     return JSON.parse(await readFile(join(runtime, 'source.json'), 'utf8'));
   } finally {
     server.closeAllConnections();

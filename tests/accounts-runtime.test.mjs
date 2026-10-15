@@ -3,7 +3,7 @@ import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { manifest, publishAccountsRuntime } from '../tools/accounts-runtime.mjs';
+import { manifest, publishAccountsRuntime, runCliProbe } from '../tools/accounts-runtime.mjs';
 
 async function fixture(run) {
   const directory = await mkdtemp(join(tmpdir(), 'accounts-deploy-test-'));
@@ -54,6 +54,20 @@ test('failed manifest publication restores the previous runtime without touching
   await assert.rejects(publishAccountsRuntime(staged, agent));
   assert.equal(await readFile(join(target, 'runtime/entry'), 'utf8'), 'original');
   assert.equal(await readFile(join(target, 'cooldowns.json'), 'utf8'), 'untouched');
+}));
+
+for (const [name, worker, expected] of [
+  ['verified pong', "process.send({kind:'ready'}); process.send({kind:'pong'},()=>process.disconnect());", null],
+  ['no-op CLI', 'process.disconnect();', /without verified pong/],
+  ['failed probe', "process.send({kind:'ready'}); process.send({kind:'failed'},()=>process.disconnect());", /invalid result/],
+  ['out-of-order pong', "process.send({kind:'pong'},()=>process.disconnect());", /invalid result/],
+  ['nonzero exit after pong', "process.send({kind:'ready'}); process.send({kind:'pong'},()=>{process.disconnect();process.exitCode=1;});", /without verified pong/],
+]) test(`deployment CLI verification requires ${name}`, async () => fixture(async directory => {
+  const cli = join(directory, 'cli.mjs');
+  await writeFile(cli, worker);
+  const operation = runCliProbe(cli, join(directory, 'unused-fixture.ts'), directory);
+  if (expected) await assert.rejects(operation, expected);
+  else await operation;
 }));
 
 test('deployment owns only the synchronized accounts fork and production dependencies', async () => {
