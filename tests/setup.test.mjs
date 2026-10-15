@@ -55,6 +55,12 @@ const integrationPath = join(localAppData, 'kintone-workspace/integrations/pi.js
 mkdirSync(dirname(integrationPath), { recursive: true });
 const integrationFixture = 'export default function () {}\n';
 writeFileSync(integrationPath, integrationFixture);
+// Setup requires the separately deployed account runtime; do not build or install
+// real account code in this settings-only fixture.
+const accountsFixture = join(setupRoot, 'agent/extensions/accounts');
+mkdirSync(accountsFixture, { recursive: true });
+writeFileSync(join(accountsFixture, 'package.json'), JSON.stringify({ private: true, pi: { extensions: ['./index.ts'] } }));
+writeFileSync(join(accountsFixture, 'index.ts'), 'export default function () {}\n');
 const settingsPath = join(setupRoot, 'agent/settings.json');
 writeFileSync(settingsPath, JSON.stringify({ extensions: [], defaultProjectTrust: 'never', lastChangelogVersion: 'test-metadata' }));
 const readSettings = () => JSON.parse(readFileSync(settingsPath, 'utf8').replace(/^\uFEFF/, ''));
@@ -94,6 +100,29 @@ test('setup retires official plan mode and notifiers, generates one sound, and p
       assert.deepEqual(first[key], value);
     }
   }
+});
+
+test('setup rejects missing or duplicate account installations without changing settings', () => {
+  const before = readFileSync(settingsPath);
+  const manifest = join(accountsFixture, 'package.json');
+  const bytes = readFileSync(manifest);
+  const reject = (pattern) => {
+    const result = spawnSync('pwsh', ['-NoProfile', '-File', join(setupRoot, 'setup.ps1')], {
+      encoding: 'utf8', env: { ...process.env, USERPROFILE: home, LOCALAPPDATA: localAppData, COMPUTERNAME: 'J250059A' },
+    });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, pattern);
+  };
+  try {
+    rmSync(manifest);
+    reject(/Run tools\/deploy-accounts.ps1/);
+    assert.deepEqual(readFileSync(settingsPath), before);
+    writeFileSync(manifest, bytes);
+    writeFileSync(settingsPath, JSON.stringify({ packages: ['npm:@narumitw/pi-accounts'] }));
+    const duplicate = readFileSync(settingsPath);
+    reject(/Remove the original accounts package/);
+    assert.deepEqual(readFileSync(settingsPath), duplicate);
+  } finally { writeFileSync(manifest, bytes); writeFileSync(settingsPath, before); }
 });
 
 test('setup supports absent or empty extension lists and preserves unrelated entries', () => {

@@ -22,10 +22,20 @@ $kintoneIntegration = Join-Path $env:LOCALAPPDATA 'kintone-workspace/integration
 if (-not (Test-Path -LiteralPath $kintoneIntegration -PathType Leaf)) {
     throw 'Install the synchronized kintone-workspace runtime before configuring Pi.'
 }
+$accountsManifest = Join-Path $PSScriptRoot 'agent/extensions/accounts/package.json'
+if (-not (Test-Path -LiteralPath $accountsManifest -PathType Leaf)) {
+    throw 'Run tools/deploy-accounts.ps1 from synchronized source before setup.'
+}
 $settingsPath = Join-Path $PSScriptRoot 'agent/settings.json'
 $settings = if (Test-Path -LiteralPath $settingsPath) {
     Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json -AsHashtable
 } else { @{} }
+if (@($settings['packages'] | Where-Object {
+    $source = if ($_ -is [string]) { $_ } elseif ($_ -is [Collections.IDictionary]) { $_['source'] } else { $null }
+    $source -match '^npm:@narumitw/pi-accounts(?:@[^/]+)?$'
+}).Count -gt 0) {
+    throw 'Remove the original accounts package through tools/deploy-accounts.ps1 before setup.'
+}
 foreach ($key in @('defaultProvider', 'defaultModel', 'defaultThinkingLevel')) {
     $settings.Remove($key) | Out-Null
 }
