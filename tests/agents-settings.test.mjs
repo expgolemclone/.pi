@@ -4,7 +4,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } f
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
-import { parseSettings } from '../agent/extensions/agents-settings.ts';
+import { parseSettings, requireOAuth } from '../agent/extensions/agents-settings.ts';
 
 const extensionPath = fileURLToPath(new URL('../agent/extensions/agents-settings.ts', import.meta.url));
 const npmRoot = execFileSync('pwsh', ['-NoProfile', '-Command', 'npm root --global'], { encoding: 'utf8' }).trim();
@@ -48,6 +48,7 @@ const mockSession = `
   let thinking, selected;
   const model = { provider: 'openai', id: 'fixture' };
   const pi = {
+    events: { emit() {} },
     on: (event, handler) => handlers.set(event, handler),
     setModel: async value => { selected = value; return true; },
     setThinkingLevel: value => { thinking = value; },
@@ -174,6 +175,81 @@ test('tier transformation preserves fields, rereads every allowed tier and ignor
     assert.equal(applyServiceTier({}, 'other'), undefined);
     assert.equal(handlers.get('before_provider_request')({ payload: {} }, { model: { provider: 'other' } }), undefined);
   `));
+});
+
+function oauthFixture({ offers = [], ready, auth, native = false } = {}) {
+  const model = { provider: 'openai', id: 'fixture', baseUrl: 'https://api.openai.com/v1' };
+  const sessionManager = {};
+  const ctx = { model, sessionManager, modelRegistry: {
+    isUsingOAuth: () => native,
+    getApiKeyAndHeaders: async () => auth ?? { ok: true, apiKey: 'fixture-access' },
+  } };
+  const pi = { events: { emit(channel, request) {
+    assert.equal(request.session, sessionManager);
+    assert.equal(request.provider, 'openai');
+    if (channel === 'oauth:credential-readiness:v1' && ready) request.waitUntil(ready());
+    if (channel === 'oauth:credential-source:v1') for (const offer of offers) request.offer(offer);
+  } } };
+  return { pi, ctx, model };
+}
+const validOffer = () => ({ type: 'oauth', access: 'fixture-access', refresh: 'fixture-refresh', expires: Date.now() + 60000 });
+const validateOAuth = f => requireOAuth(f.pi, f.ctx, f.model);
+
+test('accepts native OAuth and exactly matching named OAuth, including equivalent offers', async () => {
+  await validateOAuth(oauthFixture({ native: true }));
+  const credential = validOffer();
+  await validateOAuth(oauthFixture({ offers: [credential, structuredClone(credential)] }));
+});
+
+test('readiness settles before checking runtime auth and collecting offers', async () => {
+  let ready = false;
+  const f = oauthFixture({ offers: [validOffer()], ready: async () => { await Promise.resolve(); ready = true; } });
+  f.ctx.modelRegistry.getApiKeyAndHeaders = async () => {
+    assert.equal(ready, true);
+    return { ok: true, apiKey: 'fixture-access' };
+  };
+  await validateOAuth(f);
+});
+
+test('API keys, absent, malformed, stale, mismatched and ambiguous offers fail closed', async () => {
+  const valid = validOffer();
+  for (const offers of [[], [null], [{}], [{ ...valid, type: 'api_key' }],
+    [{ ...valid, refresh: undefined }], [{ ...valid, expires: NaN }],
+    [{ ...valid, expires: 0 }], [{ ...valid, access: 'different' }],
+    [valid, { ...valid, refresh: 'conflicting' }], [{ ...valid, refresh: 'conflicting' }, valid]]) {
+    await assert.rejects(validateOAuth(oauthFixture({ offers })), /OAuth login/);
+  }
+  for (const auth of [{ ok: false }, { ok: true },
+    { ok: true, apiKey: 'fixture-access', baseUrl: 'https://untrusted.example/v1' },
+    { ok: true, apiKey: 'fixture-access', headers: { Authorization: 'Bearer another-key' } }]) {
+    await assert.rejects(validateOAuth(oauthFixture({ offers: [valid], auth })), /OAuth login/);
+  }
+});
+
+test('credential-owner failures remain redacted and cannot authorize input', async () => {
+  const f = oauthFixture({ ready: async () => { throw new Error('fixture-secret'); } });
+  await assert.rejects(validateOAuth(f), error => /OAuth login/.test(error.message) && !error.message.includes('fixture-secret'));
+  f.pi.events.emit = () => { throw new Error('fixture-secret'); };
+  await assert.rejects(validateOAuth(f), error => !error.message.includes('fixture-secret'));
+});
+
+test('model changes during readiness or runtime resolution fail closed', async () => {
+  for (const stage of ['ready', 'auth']) {
+    const f = oauthFixture({ offers: [validOffer()] });
+    const change = () => { f.ctx.model = { ...f.model }; };
+    if (stage === 'ready') f.pi.events.emit = (channel, request) => {
+      if (channel === 'oauth:credential-readiness:v1') request.waitUntil(Promise.resolve().then(change));
+    };
+    else f.ctx.modelRegistry.getApiKeyAndHeaders = async () => { change(); return { ok: true, apiKey: 'fixture-access' }; };
+    await assert.rejects(validateOAuth(f), /OAuth login/);
+  }
+});
+
+test('unresponsive credential readiness has a bounded wait', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const check = assert.rejects(validateOAuth(oauthFixture({ ready: () => new Promise(() => {}) })), /OAuth login/);
+  t.mock.timers.tick(10000);
+  await check;
 });
 
 // Real CLI, fake OAuth/provider. No live credentials, model requests or network.
