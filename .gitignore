@@ -6,7 +6,12 @@
 !/agent/mcp.json
 !/agent/extensions/
 /agent/extensions/*
-!/agent/extensions/agents-settings.ts
+!/agent/extensions/agents-settings/
+/agent/extensions/agents-settings/*
+!/agent/extensions/agents-settings/index.ts
+!/agent/extensions/agents-settings/settings.ts
+!/agent/extensions/agents-settings/openai-oauth.ts
+!/agent/extensions/agents-settings/instructions.ts
 !/agent/extensions/notify.ts
 !/agent/extensions/kintone.ts
 !/agent/extensions/custom-compaction/

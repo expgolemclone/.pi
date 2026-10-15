@@ -19,13 +19,19 @@ const { loadPromptTemplates } = await import(pathToFileURL(join(packageRoot, 'di
 const bundlePath = 'agent/extensions/custom-compaction';
 const systemPrompt = readFileSync(join(root, bundlePath, 'COMPACTION.md'), 'utf8').trim();
 
-async function fixture(t) {
+async function fixture(t, { settingsOnly = false } = {}) {
   const directory = mkdtempSync(join('C:/dev/tmp/', 'pi-compaction-test-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const agentDir = join(directory, 'agent');
   const bundle = join(agentDir, 'extensions/custom-compaction');
   cpSync(join(root, bundlePath), bundle, { recursive: true });
-  cpSync(join(root, 'agent/extensions/agents-settings.ts'), join(agentDir, 'extensions/agents-settings.ts'));
+  const settingsBundle = join(agentDir, 'extensions/agents-settings');
+  if (settingsOnly) {
+    mkdirSync(settingsBundle);
+    cpSync(join(root, 'agent/extensions/agents-settings/settings.ts'), join(settingsBundle, 'settings.ts'));
+  } else {
+    cpSync(join(root, 'agent/extensions/agents-settings'), settingsBundle, { recursive: true });
+  }
   const extensionPath = join(bundle, 'index.ts');
   const promptPath = join(bundle, 'COMPACTION.md');
   const loaded = await loadExtensions([extensionPath], directory);
@@ -180,19 +186,27 @@ test('UI failure cannot cause a native prompt fallback', async (t) => {
   assert.equal(f.requests.length, 0);
 });
 
+test('compaction loads with only the settings helper, without the settings extension or auth and instruction modules', async (t) => {
+  const f = await fixture(t, { settingsOnly: true });
+  const result = await f.handler(f.event, f.ctx);
+  assert.equal(result.compaction.summary, 'new checkpoint');
+  assert.deepEqual(f.notifications, []);
+});
+
 test('shared-module import and discovery register each extension once and no prompt command', async (t) => {
   const f = await fixture(t);
   const discovered = await discoverAndLoadExtensions([], f.directory, f.agentDir);
   assert.deepEqual(discovered.errors, []);
   assert.equal(discovered.extensions.length, 2);
   const compactions = discovered.extensions.filter(({ path }) => path === join(f.agentDir, 'extensions/custom-compaction/index.ts'));
-  const sharedSettings = discovered.extensions.filter(({ path }) => path === join(f.agentDir, 'extensions/agents-settings.ts'));
+  const sharedSettings = discovered.extensions.filter(({ path }) => path === join(f.agentDir, 'extensions/agents-settings/index.ts'));
   assert.equal(compactions.length, 1);
   assert.deepEqual([...compactions[0].handlers.keys()], ['session_before_compact']);
   assert.equal(compactions[0].handlers.get('session_before_compact').length, 1);
   assert.equal(sharedSettings.length, 1);
-  assert.equal(sharedSettings[0].handlers.get('input').length, 1);
-  assert.equal(sharedSettings[0].handlers.get('before_provider_request').length, 1);
+  assert.deepEqual([...sharedSettings[0].handlers.keys()], ['session_start', 'input', 'before_agent_start', 'before_provider_request']);
+  for (const handlers of sharedSettings[0].handlers.values()) assert.equal(handlers.length, 1);
+  assert.equal(existsSync(join(root, 'agent/extensions/agents-settings.ts')), false);
   const prompts = loadPromptTemplates({
     cwd: f.directory, agentDir: f.agentDir, promptPaths: [], includeDefaults: true,
   });
@@ -303,7 +317,7 @@ test('isolated SDK/ChatGPT adapter applies current tier to compaction and cancel
     globalThis.fetch = async () => { throw new Error('Network forbidden in fixture'); };
     const loaded = await loadExtensions([${JSON.stringify(join(f.agentDir, 'extensions/custom-compaction/index.ts'))}], process.cwd());
     assert.deepEqual(loaded.errors, []);
-    assert.equal(loaded.extensions.length, 1); // Importing the shared module does not register its factory.
+    assert.equal(loaded.extensions.length, 1); // The settings helper does not register an extension.
     loaded.runtime.getThinkingLevel = () => 'off';
     const apiKey = 'header.' + Buffer.from(JSON.stringify({ 'https://api.openai.com/auth': { chatgpt_account_id: 'fixture' } })).toString('base64') + '.signature';
     const model = { api: 'openai-codex-responses', provider: 'openai', id: 'fixture', name: 'Fixture',

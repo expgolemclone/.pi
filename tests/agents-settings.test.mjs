@@ -4,9 +4,11 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } f
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
-import { parseSettings, requireOAuth } from '../agent/extensions/agents-settings.ts';
+import { parseSettings } from '../agent/extensions/agents-settings/settings.ts';
+import { requireOAuth } from '../agent/extensions/agents-settings/openai-oauth.ts';
 
-const extensionPath = fileURLToPath(new URL('../agent/extensions/agents-settings.ts', import.meta.url));
+const extensionDirectory = fileURLToPath(new URL('../agent/extensions/agents-settings/', import.meta.url));
+const extensionPath = join(extensionDirectory, 'index.ts');
 const npmRoot = execFileSync('pwsh', ['-NoProfile', '-Command', 'npm root --global'], { encoding: 'utf8' }).trim();
 const packageRoot = join(npmRoot, '@earendil-works/pi-coding-agent');
 const moduleUrl = path => JSON.stringify(pathToFileURL(path).href);
@@ -77,7 +79,9 @@ test('rejects unknown, missing and invalid settings', () => {
 
 test('syncs isolated settings and rereads instructions without duplicating context', t => {
   const f = fixture(t);
-  assert.doesNotMatch(readFileSync(extensionPath, 'utf8'), /\.codex/);
+  for (const file of ['index.ts', 'settings.ts', 'openai-oauth.ts', 'instructions.ts']) {
+    assert.doesNotMatch(readFileSync(join(extensionDirectory, file), 'utf8'), /\.codex/);
+  }
   checked(f.run(mockSession + `
     await handlers.get('session_start')({}, ctx);
     assert.equal(selected, model);
@@ -89,6 +93,55 @@ test('syncs isolated settings and rereads instructions without duplicating conte
     handlers.get('before_agent_start')(event);
     assert.deepEqual(event.systemPromptOptions.contextFiles, [{ path: join(shared, 'AGENTS.md'), content: '# Updated instructions' }]);
     assert.deepEqual(notifications, []);
+  `));
+});
+
+test('OAuth readiness and verification finish before selecting the model and thinking level', t => {
+  const f = fixture(t);
+  checked(f.run(mockSession + `
+    const calls = [];
+    let release;
+    pi.events.emit = (channel, request) => {
+      assert.equal(channel, 'oauth:credential-readiness:v1');
+      calls.push('readiness');
+      request.waitUntil(new Promise(resolve => { release = resolve; }));
+    };
+    ctx.modelRegistry.isUsingOAuth = () => { calls.push('oauth'); return true; };
+    pi.setModel = async value => { calls.push('model'); selected = value; return true; };
+    pi.setThinkingLevel = value => { calls.push('thinking'); thinking = value; };
+    const syncing = handlers.get('session_start')({}, ctx);
+    assert.deepEqual(calls, ['readiness']);
+    assert.equal(selected, undefined);
+    assert.equal(thinking, undefined);
+    release();
+    await syncing;
+    assert.deepEqual(calls, ['readiness', 'oauth', 'model', 'thinking']);
+  `));
+});
+
+test('instruction helpers work without settings and preserve existing context identity and order', t => {
+  const f = fixture(t);
+  checked(f.run(`
+    import assert from 'node:assert/strict';
+    import { rmSync, writeFileSync } from 'node:fs';
+    import { readInstructions, injectInstructions } from ${moduleUrl(join(extensionDirectory, 'instructions.ts'))};
+    rmSync(${JSON.stringify(f.settingsPath)});
+    const shared = readInstructions();
+    const unrelated = { path: 'project/AGENTS.md', content: 'project instructions' };
+    const existing = { path: shared.path.toUpperCase(), content: 'stale content' };
+    const files = [unrelated, existing];
+    injectInstructions(files);
+    assert.equal(files.length, 2);
+    assert.equal(files[0], unrelated);
+    assert.equal(files[1], existing);
+    assert.equal(existing.content, shared.content);
+    writeFileSync(shared.path, '# Updated instructions');
+    injectInstructions(files);
+    assert.equal(existing.content, '# Updated instructions');
+    rmSync(shared.path);
+    assert.throws(() => readInstructions(), /ENOENT/);
+    assert.throws(() => injectInstructions(files), /ENOENT/);
+    assert.deepEqual(files, [unrelated, existing]);
   `));
 });
 
@@ -160,7 +213,7 @@ test('TUI/RPC validation and notification errors never continue input or change 
 test('tier transformation preserves fields, rereads every allowed tier and ignores other providers', t => {
   const f = fixture(t);
   checked(f.run(mockSession + `
-    const { applyServiceTier } = await import(${moduleUrl(extensionPath)});
+    const { applyServiceTier } = await import(${moduleUrl(join(extensionDirectory, 'settings.ts'))});
     for (const tier of ['priority', 'auto', 'default', 'flex']) {
       const config = JSON.parse(readFileSync(join(shared, 'settings.json')));
       writeFileSync(join(shared, 'settings.json'), JSON.stringify({ ...config, serviceTier: tier }));
@@ -255,7 +308,7 @@ test('unresponsive credential readiness has a bounded wait', async t => {
 // Real CLI, fake OAuth/provider. No live credentials, model requests or network.
 function cliFixture(t) {
   const f = fixture(t);
-  cpSync(extensionPath, join(f.agentDir, 'extensions/agents-settings.ts'));
+  cpSync(extensionDirectory, join(f.agentDir, 'extensions/agents-settings'), { recursive: true });
   writeFileSync(join(f.agentDir, 'settings.json'), JSON.stringify({ enableInstallTelemetry: false, cacheWarming: 'off', defaultProjectTrust: 'never' }));
   writeFileSync(join(f.agentDir, 'auth.json'), JSON.stringify({ openai: { type: 'oauth', access: 'fixture', refresh: 'fixture', expires: 9999999999999 } }));
   writeFileSync(join(f.agentDir, 'extensions/fixture.ts'), `
