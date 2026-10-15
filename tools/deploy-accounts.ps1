@@ -17,10 +17,8 @@ $changes = & jj --repository $repository diff --summary --from main --to '@'
 if ($LASTEXITCODE -ne 0 -or $changes) { throw 'The registered fork must match synchronized main before deployment.' }
 Get-Command pi -ErrorAction Stop | Out-Null
 Get-Command node -ErrorAction Stop | Out-Null
-$npmRoot = (& npm root --global).Trim()
-if ($LASTEXITCODE -ne 0) { throw 'Cannot locate the installed Pi SDK.' }
-$sdkEntry = Join-Path $npmRoot '@earendil-works/pi-coding-agent/dist/index.js'
-if (-not (Test-Path -LiteralPath $sdkEntry -PathType Leaf)) { throw 'The installed Node Pi SDK is required.' }
+$sdkEntry = (& node (Join-Path $PSScriptRoot 'pi-install.mjs')).Trim()
+if ($LASTEXITCODE -ne 0) { throw 'Cannot locate the active managed Pi SDK.' }
 $AgentDirectory = [IO.Path]::GetFullPath($AgentDirectory)
 New-Item -ItemType Directory -Force $AgentDirectory | Out-Null
 $stage = Join-Path $AgentDirectory ('.accounts-install-' + [guid]::NewGuid().ToString('N'))

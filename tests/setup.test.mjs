@@ -6,10 +6,10 @@ import { homedir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import test, { after } from 'node:test';
 import notifier, { notificationCommand } from '../agent/extensions/notify.ts';
+import { activePiPackageRoot } from '../tools/pi-install.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const npmRoot = execFileSync('pwsh', ['-NoProfile', '-Command', 'npm root --global'], { encoding: 'utf8' }).trim();
-const packageRoot = join(npmRoot, '@earendil-works/pi-coding-agent');
+const packageRoot = await activePiPackageRoot();
 const planPath = join(packageRoot, 'examples/extensions/plan-mode/index.ts');
 const oldNotifyPath = join(packageRoot, 'examples/extensions/notify.ts');
 const notifyPath = join(root, 'agent/extensions/notify.ts');

@@ -74,6 +74,8 @@ test('deployment owns only the synchronized accounts fork and production depende
   const script = await readFile(new URL('../tools/deploy-accounts.ps1', import.meta.url), 'utf8');
   assert.match(script, /Get-LocalRepositoryPath 'expgolemclone\/pi-extensions'/);
   assert.match(script, /main@origin/);
+  assert.match(script, /Join-Path \$PSScriptRoot 'pi-install\.mjs'/);
+  assert.doesNotMatch(script, /npm root --global/);
   assert.match(script, /--from main --to '@'/);
   assert.match(script, /--omit=peer --ignore-scripts/);
   assert.match(script, /pi remove 'npm:@narumitw\/pi-accounts'/);

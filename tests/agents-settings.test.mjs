@@ -1,16 +1,18 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { parseSettings } from '../agent/extensions/agents-settings/settings.ts';
 import { requireOAuth } from '../agent/extensions/agents-settings/openai-oauth.ts';
+import { activePiPackageRoot } from '../tools/pi-install.mjs';
+import { findPackageJSON } from 'node:module';
 
 const extensionDirectory = fileURLToPath(new URL('../agent/extensions/agents-settings/', import.meta.url));
 const extensionPath = join(extensionDirectory, 'index.ts');
-const npmRoot = execFileSync('pwsh', ['-NoProfile', '-Command', 'npm root --global'], { encoding: 'utf8' }).trim();
-const packageRoot = join(npmRoot, '@earendil-works/pi-coding-agent');
+const packageRoot = await activePiPackageRoot();
+const aiRoot = dirname(findPackageJSON('@earendil-works/pi-ai', pathToFileURL(join(packageRoot, 'dist/index.js'))));
 const moduleUrl = path => JSON.stringify(pathToFileURL(path).href);
 const settings = { provider: 'openai', model: 'fixture', thinkingLevel: 'medium', serviceTier: 'priority' };
 
@@ -312,7 +314,7 @@ function cliFixture(t) {
   writeFileSync(join(f.agentDir, 'settings.json'), JSON.stringify({ enableInstallTelemetry: false, cacheWarming: 'off', defaultProjectTrust: 'never' }));
   writeFileSync(join(f.agentDir, 'auth.json'), JSON.stringify({ openai: { type: 'oauth', access: 'fixture', refresh: 'fixture', expires: 9999999999999 } }));
   writeFileSync(join(f.agentDir, 'extensions/fixture.ts'), `
-    import { fauxProvider, fauxAssistantMessage } from ${moduleUrl(join(packageRoot, 'node_modules/@earendil-works/pi-ai/dist/providers/faux.js'))};
+    import { fauxProvider, fauxAssistantMessage } from ${moduleUrl(join(aiRoot, 'dist/providers/faux.js'))};
     export default function(pi) {
       const faux = fauxProvider({ provider: 'openai', models: [{ id: 'fixture', reasoning: true }] });
       pi.registerProvider({ ...faux.provider, auth: { oauth: { name: 'Fixture',

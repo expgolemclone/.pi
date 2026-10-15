@@ -1,19 +1,21 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { findPackageJSON } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
+import { activePiPackageRoot } from '../tools/pi-install.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const npmRoot = execFileSync('pwsh', ['-NoProfile', '-Command', 'npm root --global'], { encoding: 'utf8' }).trim();
-const packageRoot = join(npmRoot, '@earendil-works/pi-coding-agent');
+const packageRoot = await activePiPackageRoot();
+const aiRoot = dirname(findPackageJSON('@earendil-works/pi-ai', pathToFileURL(join(packageRoot, 'dist/index.js'))));
 const { loadExtensions, discoverAndLoadExtensions } = await import(pathToFileURL(join(packageRoot, 'dist/core/extensions/loader.js')));
 const { createAgentSession, ModelRuntime, SessionManager, SettingsManager } =
   await import(pathToFileURL(join(packageRoot, 'dist/index.js')));
 const { prepareCompaction } = await import(pathToFileURL(join(packageRoot, 'dist/core/compaction/compaction.js')));
 const { fauxProvider, fauxAssistantMessage } = await import(pathToFileURL(
-  join(packageRoot, 'node_modules/@earendil-works/pi-ai/dist/providers/faux.js'),
+  join(aiRoot, 'dist/providers/faux.js'),
 ));
 const { loadPromptTemplates } = await import(pathToFileURL(join(packageRoot, 'dist/core/prompt-templates.js')));
 const bundlePath = 'agent/extensions/custom-compaction';
@@ -310,9 +312,9 @@ test('isolated SDK/ChatGPT adapter applies current tier to compaction and cancel
     import { zstdDecompressSync } from 'node:zlib';
     import { loadExtensions } from ${moduleUrl(join(packageRoot, 'dist/core/extensions/loader.js'))};
     import { createAgentSession, ModelRegistry, ModelRuntime, SessionManager, SettingsManager } from ${moduleUrl(join(packageRoot, 'dist/index.js'))};
-    import { createProvider } from ${moduleUrl(join(packageRoot, 'node_modules/@earendil-works/pi-ai/dist/models.js'))};
-    import { stream, streamSimple } from ${moduleUrl(join(packageRoot, 'node_modules/@earendil-works/pi-ai/dist/api/openai-codex-responses.js'))};
-    import { fauxAssistantMessage } from ${moduleUrl(join(packageRoot, 'node_modules/@earendil-works/pi-ai/dist/providers/faux.js'))};
+    import { createProvider } from ${moduleUrl(join(aiRoot, 'dist/models.js'))};
+    import { stream, streamSimple } from ${moduleUrl(join(aiRoot, 'dist/api/openai-codex-responses.js'))};
+    import { fauxAssistantMessage } from ${moduleUrl(join(aiRoot, 'dist/providers/faux.js'))};
     const settingsPath = ${JSON.stringify(settingsPath)};
     globalThis.fetch = async () => { throw new Error('Network forbidden in fixture'); };
     const loaded = await loadExtensions([${JSON.stringify(join(f.agentDir, 'extensions/custom-compaction/index.ts'))}], process.cwd());

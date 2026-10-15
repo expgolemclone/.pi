@@ -1,17 +1,18 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { findPackageJSON } from 'node:module';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
+import { activePiPackageRoot } from '../tools/pi-install.mjs';
 
 const extensionPath = fileURLToPath(new URL('../agent/extensions/kintone.ts', import.meta.url));
-const npmRoot = execFileSync('pwsh', ['-NoProfile', '-Command', 'npm root --global'], { encoding: 'utf8' }).trim();
-const packageRoot = join(npmRoot, '@earendil-works/pi-coding-agent');
+const packageRoot = await activePiPackageRoot();
+const aiRoot = dirname(findPackageJSON('@earendil-works/pi-ai', pathToFileURL(join(packageRoot, 'dist/index.js'))));
 const sdk = await import(pathToFileURL(join(packageRoot, 'dist/index.js')));
 const { loadExtensions } = await import(pathToFileURL(join(packageRoot, 'dist/core/extensions/loader.js')));
 const { fauxProvider, fauxAssistantMessage, fauxToolCall } = await import(pathToFileURL(
-  join(packageRoot, 'node_modules/@earendil-works/pi-ai/dist/providers/faux.js')));
+  join(aiRoot, 'dist/providers/faux.js')));
 
 function fixture(t) {
   const directory = mkdtempSync('C:/dev/tmp/pi-kintone-test-');
