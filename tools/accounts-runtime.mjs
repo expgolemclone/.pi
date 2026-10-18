@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
-import { access, lstat, mkdir, mkdtemp, open, readFile, readdir, rename, rm } from 'node:fs/promises';
+import { access, link, lstat, mkdir, mkdtemp, open, readFile, readdir, rename, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -85,6 +85,32 @@ export async function checkAccountsRuntime(agentDirectory, runtime = accountsRun
   return runtime;
 }
 
+export async function reuseUnchangedNativeModules(stagedRuntime, runtime) {
+  const modules = join(stagedRuntime, 'node_modules');
+  await noLinks(modules);
+  async function visit(directory) {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isSymbolicLink()) throw new Error(`Accounts deployment link: ${path}`);
+      if (entry.isDirectory()) { await visit(path); continue; }
+      if (!entry.isFile() || !entry.name.endsWith('.node')) continue;
+      const installed = join(runtime, relative(stagedRuntime, path));
+      await noLinks(installed);
+      if (!(await info(installed))?.isFile()) continue;
+      const bytes = await readFile(path);
+      if (!bytes.equals(await readFile(installed))) continue;
+      // Windows can unlink a loaded DLL's old name when an identical package retains another hardlink.
+      const temporary = `${path}.${randomUUID()}.tmp`;
+      try {
+        await link(installed, temporary);
+        if (!bytes.equals(await readFile(temporary))) throw new Error('Installed native module changed during deployment.');
+        await rename(temporary, path);
+      } finally { await rm(temporary, { force: true }); }
+    }
+  }
+  await visit(modules);
+}
+
 export async function publishAccountsRuntime(stagedRuntime, agentDirectory, runtime, verify) {
   if (typeof verify !== 'function' || !isAbsolute(runtime)) throw new Error('A shared destination and replacement verifier are required.');
   stagedRuntime = resolve(stagedRuntime);
@@ -108,6 +134,7 @@ export async function publishAccountsRuntime(stagedRuntime, agentDirectory, runt
   const manifestInfo = await info(manifestPath);
   if (manifestInfo && !manifestInfo.isFile()) throw new Error('Accounts discovery manifest is not a regular file.');
   const previousManifest = manifestInfo ? await readFile(manifestPath) : undefined;
+  if (process.platform === 'win32') await reuseUnchangedNativeModules(stagedRuntime, runtime);
   await verify(stagedRuntime, join(stagedRuntime, 'node_modules/@expgolemclone/pi-accounts'));
   await noManagedAccounts(agentDirectory);
   for (const path of [stagedRuntime, runtime, manifestPath, backup]) await noLinks(path);

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { access, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { access, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import test from 'node:test';
-import { accountsManifest, accountsRuntimeDirectory, checkAccountsDestination, checkAccountsRuntime, publishAccountsRuntime, runCliProbe } from '../tools/accounts-runtime.mjs';
+import { accountsManifest, accountsRuntimeDirectory, checkAccountsDestination, checkAccountsRuntime, publishAccountsRuntime, reuseUnchangedNativeModules, runCliProbe } from '../tools/accounts-runtime.mjs';
 
 async function fixture(run) {
   const directory = await mkdtemp(join(tmpdir(), 'accounts-deploy-test-'));
@@ -48,6 +48,44 @@ test('shared updates preserve exact credentials, cooldowns, recovery, settings a
     assert.equal(await readFile(join(target, 'runtime/old'), 'utf8'), 'old local runtime, retired only after acceptance');
     await assert.rejects(access(join(directory, `install-${attempt}/previous-runtime`)), { code: 'ENOENT' });
   }
+}));
+
+test('only byte-identical native modules share an inode and survive removal of the old installation', async () => fixture(async ({ runtime, staged }) => {
+  const stage = await staged();
+  const names = ['native.node', 'changed.node', 'new.node', 'ordinary.js'];
+  for (const root of [runtime, stage]) await mkdir(join(root, 'node_modules/native'), { recursive: true });
+  for (const name of names) {
+    await writeFile(join(stage, 'node_modules/native', name), `new ${name}`);
+    if (name !== 'new.node') await writeFile(join(runtime, 'node_modules/native', name),
+      name === 'changed.node' ? 'previous binary' : `new ${name}`);
+  }
+  await reuseUnchangedNativeModules(stage, runtime);
+  for (const name of names) {
+    const candidate = join(stage, 'node_modules/native', name);
+    assert.equal(await readFile(candidate, 'utf8'), `new ${name}`);
+    assert.equal((await lstat(candidate)).nlink, name === 'native.node' ? 2 : 1);
+    if (name === 'native.node') assert.equal((await lstat(candidate)).ino,
+      (await lstat(join(runtime, 'node_modules/native', name))).ino);
+  }
+  await rm(runtime, { recursive: true });
+  assert.equal(await readFile(join(stage, 'node_modules/native/native.node'), 'utf8'), 'new native.node');
+  assert.deepEqual((await readdir(join(stage, 'node_modules/native'))).sort(), [...names].sort());
+}));
+
+for (const boundary of ['staged', 'installed']) test(`native reuse rejects ${boundary} reparse points without changing targets`, async () => fixture(async ({ directory, runtime, staged }) => {
+  const stage = await staged();
+  const outside = join(directory, 'native-outside');
+  await mkdir(outside);
+  await writeFile(join(outside, 'native.node'), 'unchanged native fixture');
+  for (const root of [runtime, stage]) await mkdir(join(root, 'node_modules'), { recursive: true });
+  const linkedRoot = boundary === 'staged' ? stage : runtime;
+  const regularRoot = boundary === 'staged' ? runtime : stage;
+  await symlink(outside, join(linkedRoot, 'node_modules/native'), process.platform === 'win32' ? 'junction' : 'dir');
+  await mkdir(join(regularRoot, 'node_modules/native'));
+  await writeFile(join(regularRoot, 'node_modules/native/native.node'), 'unchanged native fixture');
+  await assert.rejects(reuseUnchangedNativeModules(stage, runtime), /deployment link/);
+  assert.equal(await readFile(join(outside, 'native.node'), 'utf8'), 'unchanged native fixture');
+  assert.equal((await lstat(join(outside, 'native.node'))).nlink, 1);
 }));
 
 test('invalid staged runtime is rejected without changing the existing installation', async () => fixture(async ({ directory, agent, runtime }) => {
