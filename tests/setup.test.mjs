@@ -245,7 +245,8 @@ test('Pi discovers the local notifier once without official plan mode or notifie
   assert.equal(compactions.length, 1);
   assert.deepEqual([...compactions[0].handlers.keys()], ['session_before_compact']);
   const handoffs = result.extensions.filter(({ path }) => path === join(setupRoot, 'agent/extensions/daily-handoff.ts'));
-  assert.equal(handoffs.length, 0);
+  assert.equal(handoffs.length, 1);
+  assert.deepEqual([...handoffs[0].handlers.keys()], ['session_shutdown', 'session_start']);
   const promptPath = 'agent/extensions/custom-compaction/COMPACTION.md';
   assert.deepEqual(readFileSync(join(setupRoot, promptPath)), readFileSync(join(root, promptPath)));
   assert.equal(existsSync(join(setupRoot, 'agent/COMPACTION.md')), false);

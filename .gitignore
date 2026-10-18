@@ -13,6 +13,7 @@
 !/agent/extensions/agents-settings/openai-oauth.ts
 !/agent/extensions/agents-settings/instructions.ts
 !/agent/extensions/notify.ts
+!/agent/extensions/daily-handoff.ts
 !/agent/extensions/kintone.ts
 !/agent/extensions/custom-compaction/
 /agent/extensions/custom-compaction/*
@@ -26,6 +27,7 @@
 !/tests/kintone.test.mjs
 !/tests/sounds.test.mjs
 !/tests/compaction.test.mjs
+!/tests/daily-handoff.test.mjs
 !/tests/accounts-runtime.test.mjs
 !/tests/pi-install.test.mjs
 !/tools/
