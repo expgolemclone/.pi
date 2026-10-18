@@ -61,7 +61,7 @@ writeFileSync(integrationPath, integrationFixture);
 const accountsFixture = join(setupRoot, 'agent/extensions/accounts');
 mkdirSync(accountsFixture, { recursive: true });
 const sharedAccounts = accountsRuntimeDirectory(localAppData);
-const sharedAccountsEntry = join(sharedAccounts, 'node_modules/@narumitw/pi-accounts/dist/index.ts');
+const sharedAccountsEntry = join(sharedAccounts, 'node_modules/@expgolemclone/pi-accounts/dist/index.ts');
 mkdirSync(dirname(sharedAccountsEntry), { recursive: true });
 writeFileSync(sharedAccountsEntry, 'export default function () {}\n');
 writeFileSync(join(accountsFixture, 'package.json'), JSON.stringify(accountsManifest(accountsFixture, sharedAccounts)));

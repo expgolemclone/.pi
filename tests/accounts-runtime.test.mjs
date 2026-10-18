@@ -13,8 +13,8 @@ async function fixture(run) {
   await mkdir(target, { recursive: true });
   const staged = async (name = 'install') => {
     const path = join(directory, name, 'runtime');
-    await mkdir(join(path, 'node_modules/@narumitw/pi-accounts/dist'), { recursive: true });
-    await writeFile(join(path, 'node_modules/@narumitw/pi-accounts/dist/index.ts'), 'export default function(){}');
+    await mkdir(join(path, 'node_modules/@expgolemclone/pi-accounts/dist'), { recursive: true });
+    await writeFile(join(path, 'node_modules/@expgolemclone/pi-accounts/dist/index.ts'), 'export default function(){}');
     await writeFile(join(path, 'marker'), name);
     return path;
   };
@@ -39,7 +39,7 @@ test('shared updates preserve exact credentials, cooldowns, recovery, settings a
       assert.equal(await readFile(join(path, 'marker'), 'utf8'), `install-${attempt}`);
     };
     assert.equal(await publishAccountsRuntime(stage, agent, runtime, verify), target);
-    assert.deepEqual(calls, [[stage, join(stage, 'node_modules/@narumitw/pi-accounts')], [runtime, target]]);
+    assert.deepEqual(calls, [[stage, join(stage, 'node_modules/@expgolemclone/pi-accounts')], [runtime, target]]);
     assert.equal(await checkAccountsRuntime(agent, runtime), runtime);
     assert.equal(await readFile(join(runtime, 'marker'), 'utf8'), `install-${attempt}`);
     assert.deepEqual(JSON.parse(await readFile(join(target, 'package.json'), 'utf8')), accountsManifest(target, runtime));
@@ -130,7 +130,8 @@ for (const linkBoundary of ['destination', 'manifest', 'stage']) test(`rejects l
   if (linkBoundary === 'destination') {
     await mkdir(dirname(runtime), { recursive: true });
     await symlink(outside, runtime, process.platform === 'win32' ? 'junction' : 'dir');
-  } else if (linkBoundary === 'manifest') await symlink(join(outside, 'marker'), join(target, 'package.json'), 'file');
+  } else if (linkBoundary === 'manifest') await symlink(process.platform === 'win32' ? outside : join(outside, 'marker'),
+    join(target, 'package.json'), process.platform === 'win32' ? 'junction' : 'file');
   else {
     await rm(stage, { recursive: true });
     await symlink(outside, stage, process.platform === 'win32' ? 'junction' : 'dir');
@@ -159,7 +160,7 @@ test('refuses dependency placement in or around agent data and overlapping stage
 }));
 
 test('conflicting npm declarations or invalid settings fail before deployment without rewriting settings', async () => fixture(async ({ agent, runtime, staged }) => {
-  for (const settings of ['invalid JSON', '{"packages":{}}', '{"packages":["npm:@narumitw/pi-accounts"]}', '{"packages":[{"source":"npm:@narumitw/pi-accounts@0.53.1"}]}']) {
+  for (const settings of ['invalid JSON', '{"packages":{}}', '{"packages":["npm:@narumitw/pi-accounts"]}', '{"packages":[{"source":"npm:@narumitw/pi-accounts@0.53.1"}]}', '{"packages":["npm:@expgolemclone/pi-accounts"]}', '{"packages":[{"source":"npm:@expgolemclone/pi-accounts@0.53.1"}]}']) {
     const path = join(agent, 'settings.json');
     await writeFile(path, settings);
     await assert.rejects(publishAccountsRuntime(await staged(`install-${Math.random()}`), agent, runtime, accepted));
@@ -217,12 +218,14 @@ process.send({kind:'ready'});process.send({kind:'pong'},()=>process.disconnect()
 
 test('deployment uses synchronized source, native shared workspaces, strict policy and published Kit contracts', async () => {
   const script = await readFile(new URL('../tools/deploy-accounts.ps1', import.meta.url), 'utf8');
-  assert.match(script, /Get-LocalRepositoryPath 'expgolemclone\/pi-extensions'/);
+  assert.match(script, /Get-LocalRepositoryPath 'expgolemclone\/pi-accounts'/);
   assert.match(script, /Get-LocalRepositoryPath 'expgolemclone\/envx'/);
   assert.match(script, /main@origin/);
   assert.match(script, /--from main --to '@'/);
   assert.match(script, /Invoke-NativeNodeWorkspace -Operation Run/);
-  assert.match(script, /scripts\/check-install-policy\.mjs/);
+  assert.match(script, /'--workspaces', '--include-workspace-root'/);
+  assert.match(script, /\$artifacts = Join-Path \$runtime 'artifacts'/);
+  assert.doesNotMatch(script, /pi-extensions|check-install-policy/);
   assert.match(script, /--omit=dev', '--legacy-peer-deps'/);
   assert.match(script, /allowScripts = \$policy/);
   assert.match(script, /Copy-Item.*'\.npmrc'/);

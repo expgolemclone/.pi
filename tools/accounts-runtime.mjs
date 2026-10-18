@@ -14,7 +14,7 @@ export function accountsRuntimeDirectory(localAppData = process.env.LOCALAPPDATA
 
 export function accountsManifest(extensionDirectory, runtime) {
   return { private: true, pi: { extensions: [relative(extensionDirectory,
-    join(runtime, 'node_modules/@narumitw/pi-accounts/dist/index.ts')).split(sep).join('/')] } };
+    join(runtime, 'node_modules/@expgolemclone/pi-accounts/dist/index.ts')).split(sep).join('/')] } };
 }
 
 async function info(path) {
@@ -51,7 +51,7 @@ async function noManagedAccounts(agentDirectory) {
   const settings = JSON.parse((await readFile(path, 'utf8')).replace(/^\uFEFF/, ''));
   if (!settings || typeof settings !== 'object' || Array.isArray(settings) ||
       (settings.packages !== undefined && !Array.isArray(settings.packages))) throw new Error('Invalid Pi settings.');
-  if (settings.packages?.some(entry => /^npm:@narumitw\/pi-accounts(?:@[^/]+)?$/.test(typeof entry === 'string' ? entry : entry?.source))) {
+  if (settings.packages?.some(entry => /^npm:@(?:narumitw|expgolemclone)\/pi-accounts(?:@[^/]+)?$/.test(typeof entry === 'string' ? entry : entry?.source))) {
     throw new Error('Remove the original accounts package before shared deployment or setup.');
   }
 }
@@ -79,7 +79,7 @@ export async function checkAccountsRuntime(agentDirectory, runtime = accountsRun
   const path = join(target, 'package.json');
   await noLinks(path);
   assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), accountsManifest(target, runtime), 'Deploy the shared Accounts runtime before setup.');
-  const entry = join(runtime, 'node_modules/@narumitw/pi-accounts/dist/index.ts');
+  const entry = join(runtime, 'node_modules/@expgolemclone/pi-accounts/dist/index.ts');
   await noLinks(entry);
   if (!(await lstat(entry)).isFile()) throw new Error('Shared Accounts entrypoint is not a regular file.');
   return runtime;
@@ -108,7 +108,7 @@ export async function publishAccountsRuntime(stagedRuntime, agentDirectory, runt
   const manifestInfo = await info(manifestPath);
   if (manifestInfo && !manifestInfo.isFile()) throw new Error('Accounts discovery manifest is not a regular file.');
   const previousManifest = manifestInfo ? await readFile(manifestPath) : undefined;
-  await verify(stagedRuntime, join(stagedRuntime, 'node_modules/@narumitw/pi-accounts'));
+  await verify(stagedRuntime, join(stagedRuntime, 'node_modules/@expgolemclone/pi-accounts'));
   await noManagedAccounts(agentDirectory);
   for (const path of [stagedRuntime, runtime, manifestPath, backup]) await noLinks(path);
   await regularDirectory(stagedRuntime);
@@ -208,7 +208,7 @@ export async function runCliProbe(cli, fixture, directory) {
   });
 }
 
-export async function verifyAccountsRuntime(runtime, sdkEntry, extensionDirectory = join(runtime, 'node_modules/@narumitw/pi-accounts')) {
+export async function verifyAccountsRuntime(runtime, sdkEntry, extensionDirectory = join(runtime, 'node_modules/@expgolemclone/pi-accounts')) {
   const directory = await mkdtemp(join(tmpdir(), 'pi-accounts-install-check-'));
   const previousAgent = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = join(directory, 'agent');
@@ -242,7 +242,7 @@ export async function verifyAccountsRuntime(runtime, sdkEntry, extensionDirector
     assert.equal(loader.getExtensions().extensions.length, 1);
     assert.ok(loader.getExtensions().extensions[0].commands.has('accounts'));
     await new Promise((done, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', done); });
-    const chunks = join(runtime, 'node_modules/@narumitw/pi-accounts/dist/chunks');
+    const chunks = join(runtime, 'node_modules/@expgolemclone/pi-accounts/dist/chunks');
     const chunk = (await readdir(chunks)).find(name => /^quota-probe-.*\.ts$/.test(name));
     assert.ok(chunk, 'Missing built quota-probe boundary');
     const fixture = join(directory, 'probe-fixture.ts');

@@ -6,7 +6,7 @@ $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $HOME 'local-repository-map/repository-map.psm1') -Force
 Import-Module (Join-Path (Get-LocalRepositoryPath 'expgolemclone/.agents') 'workflow/agent-workflow.psm1')
 Import-Module (Join-Path (Get-LocalRepositoryPath 'expgolemclone/envx') 'runtimes/native-node-workspace.psm1')
-$repository = Get-LocalRepositoryPath 'expgolemclone/pi-extensions'
+$repository = Get-LocalRepositoryPath 'expgolemclone/pi-accounts'
 $AgentDirectory = [IO.Path]::GetFullPath($AgentDirectory)
 Get-Command node -ErrorAction Stop | Out-Null
 $sdkEntry = (& node (Join-Path $PSScriptRoot 'pi-install.mjs')).Trim()
@@ -16,28 +16,26 @@ if ($LASTEXITCODE -ne 0) { throw 'Accounts shared destination validation failed.
 
 Invoke-AgentRepositoryLock -RepositoryPath $repository -Action {
     $remote = (& jj --repository $repository git remote list) -join "`n"
-    if ($LASTEXITCODE -ne 0 -or $remote -notmatch '^origin https://github\.com/expgolemclone/pi-extensions(?:\.git)?$') {
-        throw 'Accounts must be built from the registered expgolemclone/pi-extensions fork.'
+    if ($LASTEXITCODE -ne 0 -or $remote -notmatch '^origin https://github\.com/expgolemclone/pi-accounts(?:\.git)?$') {
+        throw 'Accounts must be built from the registered expgolemclone/pi-accounts repository.'
     }
     $commit = (& jj --repository $repository log -r main --no-graph -T commit_id).Trim()
     if ($LASTEXITCODE -ne 0) { throw 'Cannot resolve synchronized accounts source.' }
     $remoteCommit = (& jj --repository $repository log -r 'main@origin' --no-graph -T commit_id).Trim()
-    if ($LASTEXITCODE -ne 0 -or $commit -ne $remoteCommit) { throw 'Synchronize the fork main before deploying accounts.' }
+    if ($LASTEXITCODE -ne 0 -or $commit -ne $remoteCommit) { throw 'Synchronize Accounts main before deployment.' }
     $changes = & jj --repository $repository diff --summary --from main --to '@'
-    if ($LASTEXITCODE -ne 0 -or $changes) { throw 'The registered fork must match synchronized main before deployment.' }
+    if ($LASTEXITCODE -ne 0 -or $changes) { throw 'The registered Accounts repository must match synchronized main before deployment.' }
     Invoke-AgentRepositoryLock -RepositoryPath $shared -Action {
         & node (Join-Path $PSScriptRoot 'accounts-runtime.mjs') destination $AgentDirectory
         if ($LASTEXITCODE -ne 0) { throw 'Accounts destination changed before deployment.' }
         $stage = Join-Path (Split-Path $shared -Parent) ('.pi-accounts-install-' + [guid]::NewGuid().ToString('N'))
-        $artifacts = Join-Path $stage 'artifacts'
         $runtime = Join-Path $stage 'runtime'
-        New-Item -ItemType Directory -Path $artifacts, $runtime | Out-Null
+        $artifacts = Join-Path $runtime 'artifacts'
+        New-Item -ItemType Directory -Path $artifacts | Out-Null
         try {
-            Invoke-NativeNodeWorkspace -Operation Run -Source $repository -Command @('node', 'scripts/check-install-policy.mjs')
             Invoke-NativeNodeWorkspace -Operation Run -Source $repository -Command @('npm', 'run', 'build')
             Invoke-NativeNodeWorkspace -Operation Run -Source $repository -Command @(
-                'npm', 'pack', '--workspace', '@narumitw/pi-private-files', '--workspace', '@narumitw/pi-accounts',
-                '--pack-destination', $artifacts
+                'npm', 'pack', '--workspaces', '--include-workspace-root', '--pack-destination', $artifacts
             )
             $archives = @(Get-ChildItem -LiteralPath $artifacts -Filter '*.tgz' | ForEach-Object FullName)
             if ($archives.Count -ne 2) { throw 'Expected Accounts and private-files archives, with Kit resolved through its published contract.' }
@@ -48,7 +46,7 @@ Invoke-AgentRepositoryLock -RepositoryPath $repository -Action {
             Invoke-NativeNodeWorkspace -Operation Run -Source $repository -Command (@(
                 'npm', 'install', '--prefix', $runtime, '--omit=dev', '--legacy-peer-deps', '--no-audit', '--no-fund'
             ) + $archives)
-            @{ repository = 'https://github.com/expgolemclone/pi-extensions'; commit = $commit } |
+            @{ repository = 'https://github.com/expgolemclone/pi-accounts'; commit = $commit } |
                 ConvertTo-Json | Set-Content -LiteralPath (Join-Path $runtime 'source.json') -Encoding utf8
             & node (Join-Path $PSScriptRoot 'accounts-runtime.mjs') publish $runtime $AgentDirectory $sdkEntry
             if ($LASTEXITCODE -ne 0) { throw 'Shared Accounts publication or offline replacement verification failed.' }
