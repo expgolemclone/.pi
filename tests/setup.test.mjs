@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import test, { after } from 'node:test';
 import notifier, { notificationCommand } from '../agent/extensions/notify.ts';
 import { activePiPackageRoot } from '../tools/pi-install.mjs';
+import { accountsManifest, accountsRuntimeDirectory } from '../tools/accounts-runtime.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const packageRoot = await activePiPackageRoot();
@@ -59,8 +60,11 @@ writeFileSync(integrationPath, integrationFixture);
 // real account code in this settings-only fixture.
 const accountsFixture = join(setupRoot, 'agent/extensions/accounts');
 mkdirSync(accountsFixture, { recursive: true });
-writeFileSync(join(accountsFixture, 'package.json'), JSON.stringify({ private: true, pi: { extensions: ['./index.ts'] } }));
-writeFileSync(join(accountsFixture, 'index.ts'), 'export default function () {}\n');
+const sharedAccounts = accountsRuntimeDirectory(localAppData);
+const sharedAccountsEntry = join(sharedAccounts, 'node_modules/@narumitw/pi-accounts/dist/index.ts');
+mkdirSync(dirname(sharedAccountsEntry), { recursive: true });
+writeFileSync(sharedAccountsEntry, 'export default function () {}\n');
+writeFileSync(join(accountsFixture, 'package.json'), JSON.stringify(accountsManifest(accountsFixture, sharedAccounts)));
 const settingsPath = join(setupRoot, 'agent/settings.json');
 writeFileSync(settingsPath, JSON.stringify({ extensions: [], defaultProjectTrust: 'never', lastChangelogVersion: 'test-metadata' }));
 const readSettings = () => JSON.parse(readFileSync(settingsPath, 'utf8').replace(/^\uFEFF/, ''));
@@ -116,6 +120,9 @@ test('setup rejects missing or duplicate account installations without changing 
   try {
     rmSync(manifest);
     reject(/Run tools\/deploy-accounts.ps1/);
+    assert.deepEqual(readFileSync(settingsPath), before);
+    writeFileSync(manifest, JSON.stringify({ private: true, pi: { extensions: ['./runtime/old.ts'] } }));
+    reject(/Deploy the shared Accounts runtime/);
     assert.deepEqual(readFileSync(settingsPath), before);
     writeFileSync(manifest, bytes);
     writeFileSync(settingsPath, JSON.stringify({ packages: ['npm:@narumitw/pi-accounts'] }));

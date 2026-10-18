@@ -26,16 +26,12 @@ $accountsManifest = Join-Path $PSScriptRoot 'agent/extensions/accounts/package.j
 if (-not (Test-Path -LiteralPath $accountsManifest -PathType Leaf)) {
     throw 'Run tools/deploy-accounts.ps1 from synchronized source before setup.'
 }
+& node (Join-Path $PSScriptRoot 'tools/accounts-runtime.mjs') check (Join-Path $PSScriptRoot 'agent')
+if ($LASTEXITCODE -ne 0) { throw 'Shared Accounts placement verification failed before setup.' }
 $settingsPath = Join-Path $PSScriptRoot 'agent/settings.json'
 $settings = if (Test-Path -LiteralPath $settingsPath) {
-    Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json -AsHashtable
+    [IO.File]::ReadAllText($settingsPath) | ConvertFrom-Json -AsHashtable
 } else { @{} }
-if (@($settings['packages'] | Where-Object {
-    $source = if ($_ -is [string]) { $_ } elseif ($_ -is [Collections.IDictionary]) { $_['source'] } else { $null }
-    $source -match '^npm:@narumitw/pi-accounts(?:@[^/]+)?$'
-}).Count -gt 0) {
-    throw 'Remove the original accounts package through tools/deploy-accounts.ps1 before setup.'
-}
 foreach ($key in @('defaultProvider', 'defaultModel', 'defaultThinkingLevel')) {
     $settings.Remove($key) | Out-Null
 }
