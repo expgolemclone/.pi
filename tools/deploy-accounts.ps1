@@ -3,7 +3,7 @@ param([string]$AgentDirectory = (Join-Path $HOME '.pi/agent'))
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-Import-Module (Join-Path $HOME 'local-repository-map/RepositoryMap.psm1') -Force
+Import-Module (Join-Path $HOME 'local-repository-map/repository-map.psm1') -Force
 $repository = Get-LocalRepositoryPath 'expgolemclone/pi-extensions'
 $remote = (& jj --repository $repository git remote list) -join "`n"
 if ($LASTEXITCODE -ne 0 -or $remote -notmatch '^origin https://github\.com/expgolemclone/pi-extensions(?:\.git)?$') {

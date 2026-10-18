@@ -28,7 +28,7 @@ writeFileSync(join(home, '.agents/settings.json'), '{}');
 writeFileSync(join(home, '.agents/AGENTS.md'), '# Test instructions\n');
 const mapRoot = join(home, 'local-repository-map');
 mkdirSync(join(mapRoot, 'profiles'), { recursive: true });
-cpSync(join(homedir(), 'local-repository-map/RepositoryMap.psm1'), join(mapRoot, 'RepositoryMap.psm1'));
+cpSync(join(homedir(), 'local-repository-map/repository-map.psm1'), join(mapRoot, 'repository-map.psm1'));
 writeFileSync(join(mapRoot, 'profiles.json'), JSON.stringify({
   schemaVersion: 1, profiles: {
     company: { computerName: 'J250059A' },

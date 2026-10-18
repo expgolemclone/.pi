@@ -12,7 +12,7 @@ foreach ($relativePath in @('.agents/settings.json', '.agents/AGENTS.md', '.agen
     }
 }
 
-Import-Module (Join-Path $HOME 'local-repository-map/RepositoryMap.psm1') -Force
+Import-Module (Join-Path $HOME 'local-repository-map/repository-map.psm1') -Force
 $envxSkill = Join-Path (Get-LocalRepositoryPath 'expgolemclone/envx') 'skills/envx'
 if (-not (Test-Path -LiteralPath (Join-Path $envxSkill 'SKILL.md') -PathType Leaf)) {
     throw "Mapped envx skill is missing: $envxSkill"
