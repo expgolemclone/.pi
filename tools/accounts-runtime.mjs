@@ -309,7 +309,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   const [command, path, argument, sdkEntry] = process.argv.slice(2);
   if (command === 'verify') {
     const source = await verifyAccountsRuntime(resolve(path), argument);
-    console.log(`Verified one accounts extension and its isolated fresh-Pi loopback probe, source ${source.commit}.`);
+    console.log(`Verified Accounts ${source.version} and its isolated fresh-Pi loopback probe.`);
   } else if (command === 'publish') {
     const target = await publishAccountsRuntime(resolve(path), argument, accountsRuntimeDirectory(),
       (runtime, extension) => verifyAccountsRuntime(runtime, sdkEntry, extension));

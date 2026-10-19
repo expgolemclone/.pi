@@ -18,7 +18,7 @@ if (-not (Test-Path -LiteralPath $kintoneIntegration -PathType Leaf)) {
 }
 $accountsManifest = Join-Path $PSScriptRoot 'agent/extensions/accounts/package.json'
 if (-not (Test-Path -LiteralPath $accountsManifest -PathType Leaf)) {
-    throw 'Run tools/deploy-accounts.ps1 from synchronized source before setup.'
+    throw 'Run tools/deploy-accounts.ps1 -Source <pi-accounts-workspace> before setup.'
 }
 & node (Join-Path $PSScriptRoot 'tools/accounts-runtime.mjs') check (Join-Path $PSScriptRoot 'agent')
 if ($LASTEXITCODE -ne 0) { throw 'Shared Accounts placement verification failed before setup.' }

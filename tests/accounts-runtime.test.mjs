@@ -254,23 +254,7 @@ process.send({kind:'ready'});process.send({kind:'pong'},()=>process.disconnect()
   finally { if (before === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = before; }
 }));
 
-test('deployment uses synchronized source, native shared workspaces, strict policy and published Kit contracts', async () => {
-  const script = await readFile(new URL('../tools/deploy-accounts.ps1', import.meta.url), 'utf8');
-  assert.match(script, /Get-LocalRepositoryPath 'expgolemclone\/pi-accounts'/);
-  assert.match(script, /Get-LocalRepositoryPath 'expgolemclone\/envx'/);
-  assert.match(script, /main@origin/);
-  assert.match(script, /--from main --to '@'/);
-  assert.match(script, /Invoke-NativeNodeWorkspace -Operation Run/);
-  assert.match(script, /'--workspaces', '--include-workspace-root'/);
-  assert.match(script, /\$artifacts = Join-Path \$runtime 'artifacts'/);
-  assert.doesNotMatch(script, /pi-extensions|check-install-policy/);
-  assert.match(script, /--omit=dev', '--legacy-peer-deps'/);
-  assert.match(script, /allowScripts = \$policy/);
-  assert.match(script, /Copy-Item.*'\.npmrc'/);
-  assert.match(script, /publish \$runtime \$AgentDirectory \$sdkEntry/);
-  assert.match(script, /previous-runtime/);
-  assert.doesNotMatch(script, /npm ci|--ignore-scripts|npm publish|pi remove|npm root --global|@narumitw\/pi-tui-kit/);
-  assert.doesNotMatch(script, /Join-Path \$AgentDirectory.*install/);
+test('Accounts runtime stays outside agent data and requires an absolute destination', async () => {
   const local = resolve('synthetic-local');
   assert.equal(accountsRuntimeDirectory(local), join(local, 'envx/runtimes/pi-accounts'));
   assert.throws(() => accountsRuntimeDirectory('relative'), /absolute LOCALAPPDATA/);

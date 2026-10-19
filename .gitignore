@@ -29,6 +29,7 @@
 !/tests/compaction.test.mjs
 !/tests/daily-handoff.test.mjs
 !/tests/accounts-runtime.test.mjs
+!/tests/deploy-accounts.test.mjs
 !/tests/pi-install.test.mjs
 !/tools/
 /tools/*
