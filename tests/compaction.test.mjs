@@ -5,10 +5,10 @@ import { dirname, join } from 'node:path';
 import { findPackageJSON } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
-import { activePiPackageRoot } from '../tools/pi-install.mjs';
+import { getPackageDir } from '@earendil-works/pi-coding-agent';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const packageRoot = await activePiPackageRoot();
+const packageRoot = getPackageDir();
 const aiRoot = dirname(findPackageJSON('@earendil-works/pi-ai', pathToFileURL(join(packageRoot, 'dist/index.js'))));
 const { loadExtensions, discoverAndLoadExtensions } = await import(pathToFileURL(join(packageRoot, 'dist/core/extensions/loader.js')));
 const { createAgentSession, ModelRuntime, SessionManager, SettingsManager } =

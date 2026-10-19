@@ -12,16 +12,6 @@ foreach ($relativePath in @('.agents/settings.json', '.agents/AGENTS.md', '.agen
     }
 }
 
-$kintoneIntegration = Join-Path $env:LOCALAPPDATA 'kintone-workspace/integrations/pi.js'
-if (-not (Test-Path -LiteralPath $kintoneIntegration -PathType Leaf)) {
-    throw 'Install the synchronized kintone-workspace runtime before configuring Pi.'
-}
-$accountsManifest = Join-Path $PSScriptRoot 'agent/extensions/accounts/package.json'
-if (-not (Test-Path -LiteralPath $accountsManifest -PathType Leaf)) {
-    throw 'Run tools/deploy-accounts.ps1 -Source <pi-accounts-workspace> before setup.'
-}
-& node (Join-Path $PSScriptRoot 'tools/accounts-runtime.mjs') check (Join-Path $PSScriptRoot 'agent')
-if ($LASTEXITCODE -ne 0) { throw 'Shared Accounts placement verification failed before setup.' }
 $settingsPath = Join-Path $PSScriptRoot 'agent/settings.json'
 $settings = if (Test-Path -LiteralPath $settingsPath) {
     [IO.File]::ReadAllText($settingsPath) | ConvertFrom-Json -AsHashtable
@@ -43,11 +33,6 @@ if (Test-Path -LiteralPath $legacyCandidates) {
 }
 $settings['defaultTools'] = @('read', 'powershell', 'edit', 'write', 'grep', 'find', 'ls', 'codemode')
 $settings['defaultProjectTrust'] = 'always'
-if ($settings.ContainsKey('skills')) {
-    $settings['skills'] = @($settings['skills'] | Where-Object {
-        ($_ -replace '\\', '/').TrimEnd('/') -notmatch '(?i)(?:^[-+!]?|/)skills/envx(?:/SKILL\.md)?$'
-    })
-}
 # The local kintone.ts loads the installed integration only when the agent asks.
 $settings['extensions'] = @($settings['extensions'] | Where-Object {
     ($_ -replace '\\', '/').TrimEnd('/') -notmatch '(?i)/kintone-workspace/integrations/pi\.js$'

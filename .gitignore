@@ -1,5 +1,7 @@
 *
 !/.gitignore
+!/package.json
+!/package-lock.json
 !/setup.ps1
 !/agent/
 /agent/*
@@ -28,16 +30,10 @@
 !/tests/sounds.test.mjs
 !/tests/compaction.test.mjs
 !/tests/daily-handoff.test.mjs
-!/tests/accounts-runtime.test.mjs
-!/tests/deploy-accounts.test.mjs
-!/tests/pi-install.test.mjs
 !/tools/
 /tools/*
 !/tools/sounds.mjs
 !/tools/preview-sound.mjs
-!/tools/accounts-runtime.mjs
-!/tools/deploy-accounts.ps1
-!/tools/pi-install.mjs
 !/tools/vendor/
 /tools/vendor/*
 !/tools/vendor/zzfx.mjs

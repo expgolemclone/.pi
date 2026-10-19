@@ -5,11 +5,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import test, { after } from 'node:test';
 import notifier, { notificationCommand } from '../agent/extensions/notify.ts';
-import { activePiPackageRoot } from '../tools/pi-install.mjs';
-import { accountsManifest, accountsRuntimeDirectory } from '../tools/accounts-runtime.mjs';
+import { getPackageDir } from '@earendil-works/pi-coding-agent';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const packageRoot = await activePiPackageRoot();
+const packageRoot = getPackageDir();
 const planPath = join(packageRoot, 'examples/extensions/plan-mode/index.ts');
 const oldNotifyPath = join(packageRoot, 'examples/extensions/notify.ts');
 const notifyPath = join(root, 'agent/extensions/notify.ts');
@@ -33,15 +32,6 @@ const integrationPath = join(localAppData, 'kintone-workspace/integrations/pi.js
 mkdirSync(dirname(integrationPath), { recursive: true });
 const integrationFixture = 'export default function () {}\n';
 writeFileSync(integrationPath, integrationFixture);
-// Setup requires the separately deployed account runtime; do not build or install
-// real account code in this settings-only fixture.
-const accountsFixture = join(setupRoot, 'agent/extensions/accounts');
-mkdirSync(accountsFixture, { recursive: true });
-const sharedAccounts = accountsRuntimeDirectory(localAppData);
-const sharedAccountsEntry = join(sharedAccounts, 'node_modules/@expgolemclone/pi-accounts/dist/index.ts');
-mkdirSync(dirname(sharedAccountsEntry), { recursive: true });
-writeFileSync(sharedAccountsEntry, 'export default function () {}\n');
-writeFileSync(join(accountsFixture, 'package.json'), JSON.stringify(accountsManifest(accountsFixture, sharedAccounts)));
 const settingsPath = join(setupRoot, 'agent/settings.json');
 writeFileSync(settingsPath, JSON.stringify({ extensions: [], defaultProjectTrust: 'never', lastChangelogVersion: 'test-metadata' }));
 const readSettings = () => JSON.parse(readFileSync(settingsPath, 'utf8').replace(/^\uFEFF/, ''));
@@ -83,30 +73,15 @@ test('setup retires official plan mode and notifiers, generates one sound, and p
   }
 });
 
-test('setup rejects missing or duplicate account installations without changing settings', () => {
-  const before = readFileSync(settingsPath);
-  const manifest = join(accountsFixture, 'package.json');
-  const bytes = readFileSync(manifest);
-  const reject = (pattern) => {
-    const result = spawnSync('pwsh', ['-NoProfile', '-File', join(setupRoot, 'setup.ps1')], {
-      encoding: 'utf8', env: { ...process.env, USERPROFILE: home, LOCALAPPDATA: localAppData, COMPUTERNAME: 'J250059A' },
-    });
-    assert.equal(result.status, 1);
-    assert.match(result.stderr, pattern);
-  };
+test('setup preserves native local package declarations without deploying dependencies', () => {
+  const before = readSettings();
   try {
-    rmSync(manifest);
-    reject(/Run tools\/deploy-accounts.ps1/);
-    assert.deepEqual(readFileSync(settingsPath), before);
-    writeFileSync(manifest, JSON.stringify({ private: true, pi: { extensions: ['./runtime/old.ts'] } }));
-    reject(/Deploy the shared Accounts runtime/);
-    assert.deepEqual(readFileSync(settingsPath), before);
-    writeFileSync(manifest, bytes);
-    writeFileSync(settingsPath, JSON.stringify({ packages: ['npm:@narumitw/pi-accounts'] }));
-    const duplicate = readFileSync(settingsPath);
-    reject(/Remove the original accounts package/);
-    assert.deepEqual(readFileSync(settingsPath), duplicate);
-  } finally { writeFileSync(manifest, bytes); writeFileSync(settingsPath, before); }
+    const packages = ['C:/mapped/pi-accounts'];
+    writeFileSync(settingsPath, JSON.stringify({ ...before, packages }));
+    setup();
+    assert.deepEqual(readSettings().packages, packages);
+    assert.equal(existsSync(join(setupRoot, 'agent/extensions/accounts')), false);
+  } finally { writeFileSync(settingsPath, JSON.stringify(before)); }
 });
 
 test('setup supports absent or empty extension lists and preserves unrelated entries', () => {
@@ -140,54 +115,27 @@ test('setup removes eager kintone integration paths and never duplicates the loc
   }
 });
 
-test('setup rejects an absent workspace integration before mutating settings', () => {
-  const before = readFileSync(settingsPath);
+test('setup does not require an optional lazy workspace integration', () => {
+  const before = readSettings();
   rmSync(integrationPath);
   try {
-    const child = spawnSync('pwsh', ['-NoProfile', '-File', join(setupRoot, 'setup.ps1')], {
-      encoding: 'utf8', env: { ...process.env, USERPROFILE: home, LOCALAPPDATA: localAppData, COMPUTERNAME: 'J250059A' },
-    });
-    assert.ifError(child.error);
-    assert.equal(child.status, 1);
-    assert.match(child.stderr, /Install the synchronized kintone-workspace runtime/);
-    assert.deepEqual(readFileSync(settingsPath), before);
+    setup();
+    assert.equal(existsSync(integrationPath), false);
+    assert.deepEqual(readSettings(), before);
   } finally {
     writeFileSync(integrationPath, integrationFixture);
   }
 });
 
-test('setup removes retired envx skill selections without requiring RepositoryMap or a skill installation', () => {
-  const before = readSettings();
-  const unrelated = ['./custom-skills', '+./skills/envx-tools', '!**/skills/private', './custom-skills'];
-  const retired = [
-    'Z:/retired envx/skills/envx', 'Y:\\moved\\skills\\envx\\SKILL.md',
-    '+C:/mapped/envx/skills/envx/', '-./skills/envx', '!**/skills/envx/SKILL.md',
-    'skills/envx', '+skills/envx', './skills/ENVX/SKILL.MD',
-  ];
-  try {
-    assert.equal(existsSync(join(home, 'local-repository-map')), false);
-    writeFileSync(settingsPath, JSON.stringify({ ...before, skills: [...unrelated, ...retired, ...retired] }));
-    setup();
-    assert.deepEqual(readSettings().skills, unrelated);
-    const first = readSettings();
-    setup();
-    assert.deepEqual(readSettings(), first);
-  } finally {
-    writeFileSync(settingsPath, JSON.stringify(before));
-  }
-});
-
-test('setup leaves absent or empty skill lists alone and never adds an envx skill', () => {
+test('setup preserves project-owned skill selections', () => {
   const before = readSettings();
   try {
-    for (const skills of [undefined, [], ['C:/old/skills/envx']]) {
+    for (const skills of [undefined, [], ['./custom-skills', '!**/skills/private']]) {
       writeFileSync(settingsPath, JSON.stringify({ ...before, skills }));
       setup();
-      assert.deepEqual(readSettings().skills, skills === undefined ? undefined : []);
+      assert.deepEqual(readSettings().skills, skills);
     }
-  } finally {
-    writeFileSync(settingsPath, JSON.stringify(before));
-  }
+  } finally { writeFileSync(settingsPath, JSON.stringify(before)); }
 });
 
 test('Pi discovers the local notifier once without official plan mode or notifier capabilities', async () => {

@@ -6,12 +6,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { parseSettings } from '../agent/extensions/agents-settings/settings.ts';
 import { requireOAuth } from '../agent/extensions/agents-settings/openai-oauth.ts';
-import { activePiPackageRoot } from '../tools/pi-install.mjs';
+import { getPackageDir } from '@earendil-works/pi-coding-agent';
 import { findPackageJSON } from 'node:module';
 
 const extensionDirectory = fileURLToPath(new URL('../agent/extensions/agents-settings/', import.meta.url));
 const extensionPath = join(extensionDirectory, 'index.ts');
-const packageRoot = await activePiPackageRoot();
+const packageRoot = getPackageDir();
 const aiRoot = dirname(findPackageJSON('@earendil-works/pi-ai', pathToFileURL(join(packageRoot, 'dist/index.js'))));
 const moduleUrl = path => JSON.stringify(pathToFileURL(path).href);
 const settings = { provider: 'openai', model: 'fixture', thinkingLevel: 'medium', serviceTier: 'priority' };

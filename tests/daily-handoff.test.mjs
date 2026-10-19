@@ -7,10 +7,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
 import extension, { nextDeadline } from '../agent/extensions/daily-handoff.ts';
-import { activePiPackageRoot } from '../tools/pi-install.mjs';
+import { getPackageDir } from '@earendil-works/pi-coding-agent';
 
 const extensionPath = fileURLToPath(new URL('../agent/extensions/daily-handoff.ts', import.meta.url));
-const packageRoot = await activePiPackageRoot();
+const packageRoot = getPackageDir();
 const aiRoot = dirname(findPackageJSON('@earendil-works/pi-ai', pathToFileURL(join(packageRoot, 'dist/index.js'))));
 const schedules = [
   { profile: 'company', time: [16, 30], at: '16:30:00' },
