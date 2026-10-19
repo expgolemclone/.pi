@@ -12,12 +12,6 @@ foreach ($relativePath in @('.agents/settings.json', '.agents/AGENTS.md', '.agen
     }
 }
 
-Import-Module (Join-Path $HOME 'local-repository-map/repository-map.psm1') -Force
-$envxSkill = Join-Path (Get-LocalRepositoryPath 'expgolemclone/envx') 'skills/envx'
-if (-not (Test-Path -LiteralPath (Join-Path $envxSkill 'SKILL.md') -PathType Leaf)) {
-    throw "Mapped envx skill is missing: $envxSkill"
-}
-
 $kintoneIntegration = Join-Path $env:LOCALAPPDATA 'kintone-workspace/integrations/pi.js'
 if (-not (Test-Path -LiteralPath $kintoneIntegration -PathType Leaf)) {
     throw 'Install the synchronized kintone-workspace runtime before configuring Pi.'
@@ -49,10 +43,11 @@ if (Test-Path -LiteralPath $legacyCandidates) {
 }
 $settings['defaultTools'] = @('read', 'powershell', 'edit', 'write', 'grep', 'find', 'ls', 'codemode')
 $settings['defaultProjectTrust'] = 'always'
-$skills = if ($settings.ContainsKey('skills')) { @($settings['skills']) } else { @() }
-$settings['skills'] = @(@($skills | Where-Object {
-    ($_ -replace '\\', '/').TrimEnd('/') -notmatch '(?i)/skills/envx(?:/SKILL\.md)?$'
-}) + $envxSkill | Select-Object -Unique)
+if ($settings.ContainsKey('skills')) {
+    $settings['skills'] = @($settings['skills'] | Where-Object {
+        ($_ -replace '\\', '/').TrimEnd('/') -notmatch '(?i)(?:^[-+!]?|/)skills/envx(?:/SKILL\.md)?$'
+    })
+}
 # The local kintone.ts loads the installed integration only when the agent asks.
 $settings['extensions'] = @($settings['extensions'] | Where-Object {
     ($_ -replace '\\', '/').TrimEnd('/') -notmatch '(?i)/kintone-workspace/integrations/pi\.js$'
