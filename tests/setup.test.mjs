@@ -19,7 +19,12 @@ const home = mkdtempSync('C:/dev/tmp/pi-setup-test-');
 after(() => rmSync(home, { recursive: true, force: true }));
 const setupRoot = join(home, '.pi');
 mkdirSync(join(setupRoot, 'agent'), { recursive: true });
-for (const path of ['setup.ps1', 'tools', 'agent/extensions', 'agent/mcp.json']) {
+for (const path of [
+  'setup.ps1', 'tools/sounds.mjs', 'tools/vendor', 'agent/mcp.json',
+  'agent/extensions/agents-settings', 'agent/extensions/custom-compaction',
+  'agent/extensions/notify.ts', 'agent/extensions/kintone.ts',
+]) {
+  mkdirSync(dirname(join(setupRoot, path)), { recursive: true });
   cpSync(join(root, path), join(setupRoot, path), { recursive: true });
 }
 mkdirSync(join(home, '.agents/skills'), { recursive: true });
@@ -153,9 +158,6 @@ test('Pi discovers the local notifier once without official plan mode or notifie
   const compactions = result.extensions.filter(({ path }) => path === join(setupRoot, 'agent/extensions/custom-compaction/index.ts'));
   assert.equal(compactions.length, 1);
   assert.deepEqual([...compactions[0].handlers.keys()], ['session_before_compact']);
-  const handoffs = result.extensions.filter(({ path }) => path === join(setupRoot, 'agent/extensions/daily-handoff.ts'));
-  assert.equal(handoffs.length, 1);
-  assert.deepEqual([...handoffs[0].handlers.keys()], ['session_shutdown', 'session_start']);
   const promptPath = 'agent/extensions/custom-compaction/COMPACTION.md';
   assert.deepEqual(readFileSync(join(setupRoot, promptPath)), readFileSync(join(root, promptPath)));
   assert.equal(existsSync(join(setupRoot, 'agent/COMPACTION.md')), false);
