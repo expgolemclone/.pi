@@ -250,7 +250,8 @@ test('real notification plays under Restricted without a .ps1 or policy relaxati
   ], { encoding: 'utf8', timeout: 10000 });
   assert.ifError(blocked.error);
   assert.equal(blocked.status, 1);
-  assert.match(blocked.stderr, /running scripts is disabled/i);
+  assert.ok(blocked.stderr.includes(file));
+  assert.match(blocked.stderr, /about_Execution_Policies/);
   setup();
   const { default: isolatedNotifier } = await import(pathToFileURL(join(setupRoot, 'agent/extensions/notify.ts')));
   const settled = register(async (command, args, options) => {
