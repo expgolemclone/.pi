@@ -1,5 +1,7 @@
 import { Buffer } from "node:buffer";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+import WindowsToaster from "node-notifier/notifiers/toaster.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const sound = fileURLToPath(new URL("../sounds/ready.wav", import.meta.url));
@@ -15,12 +17,6 @@ $player = [System.Media.SoundPlayer]::new($SoundPath)
 try {
     # Load explicitly: missing/invalid WAVs must fail, never play a system beep.
     $player.Load()
-    [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
-    $xml = [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime]::new()
-    # LoadXml avoids live DOM collection mutation from the official example.
-    $xml.LoadXml('<toast><visual><binding template="ToastGeneric"><text>Pi</text><text>Ready for input</text></binding></visual><audio silent="true" /></toast>')
-    $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
-    [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Pi').Show($toast)
     # Direct playback is independent of toast sounds and Do not disturb.
     $player.PlaySync()
 } finally {
@@ -28,16 +24,17 @@ try {
 }
 `;
   return {
-    command: "powershell.exe",
-    args: ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")],
+    command: "mise.exe",
+    args: ["exec", "--", "pwsh", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")],
     options: { timeout: 10000 },
   };
 }
 
-export default function (pi: ExtensionAPI) {
+export default function (pi: ExtensionAPI, toast = new WindowsToaster({ withFallback: false })) {
   // Notification-only final boundary: no alerts during retries or continuations.
   pi.on("agent_settled", async (_event, ctx) => {
     if (ctx.mode !== "tui" || process.platform !== "win32") return;
+    await promisify(toast.notify.bind(toast))({ title: "Pi", message: "Ready for input", sound: false });
     const { command, args, options } = notificationCommand();
     const result = await pi.exec(command, args, options);
     if (result.code !== 0 || result.killed) {

@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, cpSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, cpSync, symlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import test, { after } from 'node:test';
 import notifier, { notificationCommand } from '../agent/extensions/notify.ts';
+import WindowsToaster from 'node-notifier/notifiers/toaster.js';
 import { getPackageDir } from '@earendil-works/pi-coding-agent';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -19,6 +20,7 @@ const home = mkdtempSync('C:/dev/tmp/pi-setup-test-');
 after(() => rmSync(home, { recursive: true, force: true }));
 const setupRoot = join(home, '.pi');
 mkdirSync(join(setupRoot, 'agent'), { recursive: true });
+symlinkSync(join(root, 'node_modules'), join(setupRoot, 'node_modules'), 'junction');
 for (const path of [
   'setup.ps1', 'tools/sounds.mjs', 'tools/vendor', 'agent/mcp.json',
   'agent/extensions/agents-settings', 'agent/extensions/custom-compaction',
@@ -40,7 +42,7 @@ writeFileSync(integrationPath, integrationFixture);
 const settingsPath = join(setupRoot, 'agent/settings.json');
 writeFileSync(settingsPath, JSON.stringify({ extensions: [], defaultProjectTrust: 'never', lastChangelogVersion: 'test-metadata' }));
 const readSettings = () => JSON.parse(readFileSync(settingsPath, 'utf8').replace(/^\uFEFF/, ''));
-const setup = () => execFileSync('pwsh', ['-NoProfile', '-File', join(setupRoot, 'setup.ps1')], {
+const setup = () => execFileSync('mise.exe', ['exec', '--', 'pwsh', '-NoProfile', '-File', join(setupRoot, 'setup.ps1')], {
   encoding: 'utf8', env: { ...process.env, USERPROFILE: home, LOCALAPPDATA: localAppData },
 });
 const setupSoundPath = join(setupRoot, 'agent/sounds/ready.wav');
@@ -171,27 +173,31 @@ test('Pi discovers the local notifier once without official plan mode or notifie
   }
 });
 
-function register(exec, extension = notifier) {
+function register(exec, extension = notifier, toast = { notify: (_options, done) => done(null) }) {
   const handlers = new Map();
-  extension({ on: (event, handler) => handlers.set(event, handler), exec });
+  extension({ on: (event, handler) => handlers.set(event, handler), exec }, toast);
   assert.deepEqual([...handlers.keys()], ['agent_settled']);
   return handlers.get('agent_settled');
 }
 
 test('notifier executes once at settlement only in interactive mode', async (t) => {
   const exec = t.mock.fn(async () => ({ code: 0, killed: false, stdout: '', stderr: '' }));
-  const settled = register(exec);
+  const toast = { notify: t.mock.fn((_options, done) => done(null)) };
+  const settled = register(exec, notifier, toast);
   assert.equal(exec.mock.callCount(), 0); // no side effects while loading
   for (const mode of ['print', 'json', 'rpc']) {
     await settled({ type: 'agent_settled' }, { mode });
   }
   assert.equal(exec.mock.callCount(), 0);
+  assert.equal(toast.notify.mock.callCount(), 0);
   await settled({ type: 'agent_settled' }, { mode: 'tui' });
   assert.equal(exec.mock.callCount(), 1);
+  assert.equal(toast.notify.mock.callCount(), 1);
+  assert.deepEqual(toast.notify.mock.calls[0].arguments[0], { title: 'Pi', message: 'Ready for input', sound: false });
   const [command, args, options] = exec.mock.calls[0].arguments;
-  assert.equal(command, 'powershell.exe');
-  assert.deepEqual(args.slice(0, 3), ['-NoProfile', '-NonInteractive', '-EncodedCommand']);
-  const script = Buffer.from(args[3], 'base64').toString('utf16le');
+  assert.equal(command, 'mise.exe');
+  assert.deepEqual(args.slice(0, 6), ['exec', '--', 'pwsh', '-NoProfile', '-NonInteractive', '-EncodedCommand']);
+  const script = Buffer.from(args[6], 'base64').toString('utf16le');
   assert.ok(script.includes(`$SoundPath = '${soundPath}'`));
   assert.doesNotMatch(script, /Set-ExecutionPolicy|Bypass/i);
   assert.ok(!args.includes('-ExecutionPolicy'));
@@ -207,37 +213,40 @@ test('notification failures are visible and never invoke a fallback sound', asyn
   }
 });
 
-test('Windows command silences toast audio, explicitly loads WAV, and plays once', () => {
+test('native toast errors are visible without an audio or legacy fallback', async (t) => {
+  const exec = t.mock.fn();
+  const toast = { notify: t.mock.fn((_options, done) => done(new Error('toast test failure'))) };
+  await assert.rejects(register(exec, notifier, toast)({}, { mode: 'tui' }), /toast test failure/);
+  assert.equal(toast.notify.mock.callCount(), 1);
+  assert.equal(exec.mock.callCount(), 0);
+  assert.match(readFileSync(notifyPath, 'utf8'), /new WindowsToaster\(\{ withFallback: false \}\)/);
+});
+
+test('PowerShell command explicitly loads WAV, plays once, and needs no legacy WinRT projection', () => {
   const { args } = notificationCommand();
-  const script = Buffer.from(args[3], 'base64').toString('utf16le');
-  assert.match(script, /<audio silent="true"\s*\/>/);
-  assert.match(script, /\$xml\.LoadXml\(/);
-  assert.doesNotMatch(script, /AppendChild|GetElementsByTagName|SystemSounds/);
+  const script = Buffer.from(args[6], 'base64').toString('utf16le');
+  assert.doesNotMatch(script, /WindowsRuntime|SystemSounds/);
   assert.ok(script.indexOf('$player.Load()') < script.indexOf('$player.PlaySync()'));
   assert.equal(script.match(/\.PlaySync\(/g).length, 1);
-  assert.equal(script.match(/\.Show\(/g).length, 1);
   assert.match(script, /finally\s*\{\s*\$player\.Dispose\(\)/);
 });
 
 test('command encoding preserves apostrophes and Unicode in the audio path', () => {
   const path = "C:\\音\\O'Brien\\ready.wav";
   const { args } = notificationCommand(path);
-  const script = Buffer.from(args[3], 'base64').toString('utf16le');
+  const script = Buffer.from(args[6], 'base64').toString('utf16le');
   assert.ok(script.includes(`$SoundPath = '${path.replaceAll("'", "''")}'`));
 });
 
 test('real notification plays under Restricted without a .ps1 or policy relaxation', async (t) => {
-  // Make the child stricter than the harness (which may inherit Process=Bypass).
-  // Prove that files are blocked rather than relying on Get-ExecutionPolicy's
-  // module autoload (PowerShell 7's inherited module path can break it in 5.1).
-  // No persistent user/machine policy is changed.
+  // Restrict only the managed child process; never change user/machine policy.
   mkdirSync('C:/dev/tmp', { recursive: true });
   const directory = mkdtempSync('C:/dev/tmp/pi-notify-policy-test-');
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const file = join(directory, 'blocked.ps1');
   writeFileSync(file, "Write-Output 'This script must not execute'\n");
-  const blocked = spawnSync('powershell.exe', [
-    '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Restricted', '-File', file,
+  const blocked = spawnSync('mise.exe', [
+    'exec', '--', 'pwsh', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Restricted', '-File', file,
   ], { encoding: 'utf8', timeout: 10000 });
   assert.ifError(blocked.error);
   assert.equal(blocked.status, 1);
@@ -245,12 +254,12 @@ test('real notification plays under Restricted without a .ps1 or policy relaxati
   setup();
   const { default: isolatedNotifier } = await import(pathToFileURL(join(setupRoot, 'agent/extensions/notify.ts')));
   const settled = register(async (command, args, options) => {
-    const script = Buffer.from(args[3], 'base64').toString('utf16le');
+    const script = Buffer.from(args[6], 'base64').toString('utf16le');
     assert.ok(script.includes(`$SoundPath = '${setupSoundPath}'`));
     assert.ok(!args.includes('-File'));
     assert.ok(!args.includes('-ExecutionPolicy'));
-    const stdout = execFileSync(command, ['-ExecutionPolicy', 'Restricted', ...args], { ...options, encoding: 'utf8' });
+    const stdout = execFileSync(command, [...args.slice(0, 3), '-ExecutionPolicy', 'Restricted', ...args.slice(3)], { ...options, encoding: 'utf8' });
     return { code: 0, killed: false, stdout, stderr: '' };
-  }, isolatedNotifier);
+  }, isolatedNotifier, new WindowsToaster({ withFallback: false }));
   await settled({ type: 'agent_settled' }, { mode: 'tui' });
 });
