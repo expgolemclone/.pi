@@ -15,7 +15,6 @@
 !/agent/extensions/agents-settings/openai-oauth.ts
 !/agent/extensions/agents-settings/instructions.ts
 !/agent/extensions/notify.ts
-!/agent/extensions/kintone.ts
 !/agent/extensions/custom-compaction/
 /agent/extensions/custom-compaction/*
 !/agent/extensions/custom-compaction/index.ts
@@ -25,7 +24,6 @@
 !/tests/agents-settings.test.mjs
 !/tests/setup.test.mjs
 !/tests/mcp.test.mjs
-!/tests/kintone.test.mjs
 !/tests/sounds.test.mjs
 !/tests/compaction.test.mjs
 !/tools/

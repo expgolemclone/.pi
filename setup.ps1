@@ -12,6 +12,11 @@ foreach ($relativePath in @('.agents/settings.json', '.agents/AGENTS.md', '.agen
     }
 }
 
+$kintoneIntegration = Join-Path $env:LOCALAPPDATA 'kintone-workspace/integrations/pi.js'
+if (-not (Test-Path -LiteralPath $kintoneIntegration -PathType Leaf)) {
+    throw "Required workspace integration is missing: $kintoneIntegration"
+}
+
 $settingsPath = Join-Path $PSScriptRoot 'agent/settings.json'
 $settings = if (Test-Path -LiteralPath $settingsPath) {
     [IO.File]::ReadAllText($settingsPath) | ConvertFrom-Json -AsHashtable
@@ -33,9 +38,6 @@ if (Test-Path -LiteralPath $legacyCandidates) {
 }
 $settings['defaultTools'] = @('read', 'powershell', 'edit', 'write', 'grep', 'find', 'ls', 'codemode')
 $settings['defaultProjectTrust'] = 'always'
-# The local kintone.ts loads the installed integration only when the agent asks.
-$settings['extensions'] = @($settings['extensions'] | Where-Object {
-    ($_ -replace '\\', '/').TrimEnd('/') -notmatch '(?i)/kintone-workspace/integrations/pi\.js$'
-} | Select-Object -Unique)
+$settings['extensions'] = @($settings['extensions'] + $kintoneIntegration | Select-Object -Unique)
 $settings | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $settingsPath -Encoding utf8
 Write-Output 'Pi is configured to use shared .agents resources, PowerShell, and the local three-note completion notifier. Run /reload.'

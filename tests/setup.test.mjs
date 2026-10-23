@@ -24,7 +24,7 @@ symlinkSync(join(root, 'node_modules'), join(setupRoot, 'node_modules'), 'juncti
 for (const path of [
   'setup.ps1', 'tools/sounds.mjs', 'tools/vendor', 'agent/mcp.json',
   'agent/extensions/agents-settings', 'agent/extensions/custom-compaction',
-  'agent/extensions/notify.ts', 'agent/extensions/kintone.ts',
+  'agent/extensions/notify.ts',
 ]) {
   mkdirSync(dirname(join(setupRoot, path)), { recursive: true });
   cpSync(join(root, path), join(setupRoot, path), { recursive: true });
@@ -37,13 +37,13 @@ writeFileSync(join(home, '.agents/AGENTS.md'), '# Test instructions\n');
 const localAppData = join(home, 'AppData/Local');
 const integrationPath = join(localAppData, 'kintone-workspace/integrations/pi.js');
 mkdirSync(dirname(integrationPath), { recursive: true });
-const integrationFixture = 'export default function () {}\n';
+const integrationFixture = "export default function (pi) { pi.registerMcpServer('kintone', { command: process.execPath }); }\n";
 writeFileSync(integrationPath, integrationFixture);
 const settingsPath = join(setupRoot, 'agent/settings.json');
 writeFileSync(settingsPath, JSON.stringify({ extensions: [], defaultProjectTrust: 'never', lastChangelogVersion: 'test-metadata' }));
 const readSettings = () => JSON.parse(readFileSync(settingsPath, 'utf8').replace(/^\uFEFF/, ''));
 const setup = () => execFileSync('mise.exe', ['exec', '--', 'pwsh', '-NoProfile', '-File', join(setupRoot, 'setup.ps1')], {
-  encoding: 'utf8', env: { ...process.env, USERPROFILE: home, LOCALAPPDATA: localAppData },
+  encoding: 'utf8', env: { ...process.env, MISE_DATA_DIR: join(process.env.LOCALAPPDATA, 'mise'), USERPROFILE: home, LOCALAPPDATA: localAppData },
 });
 const setupSoundPath = join(setupRoot, 'agent/sounds/ready.wav');
 
@@ -68,7 +68,7 @@ test('setup retires official plan mode and notifiers, generates one sound, and p
   assert.ok(first.extensions.every((entry) => !legacy.includes(entry)));
   assert.deepEqual(first.extensions, [...new Set([...(before.extensions ?? []).filter((entry) =>
     !/\/examples\/extensions\/(notify\.ts|plan-mode(?:\/index\.(?:ts|js))?)\/?$/.test(entry.replaceAll('\\', '/'))
-  )])]);
+  ), integrationPath])]);
   assert.deepEqual(first.defaultTools, ['read', 'powershell', 'edit', 'write', 'grep', 'find', 'ls', 'codemode']);
   assert.ok(first.extensions.every((entry) => !entry.replaceAll('\\', '/').endsWith('/examples/extensions/notify.ts')));
   assert.ok(!first.extensions.includes(notifyPath)); // loaded by discovery, not configured twice
@@ -98,37 +98,32 @@ test('setup supports absent or empty extension lists and preserves unrelated ent
       const settings = { ...before, extensions };
       writeFileSync(settingsPath, JSON.stringify(settings));
       setup();
-      assert.deepEqual(readSettings().extensions, extensions ?? []);
+      assert.deepEqual(readSettings().extensions, [...(extensions ?? []), integrationPath]);
     }
   } finally {
     writeFileSync(settingsPath, JSON.stringify(before, null, 2));
   }
 });
 
-test('setup removes eager kintone integration paths and never duplicates the local loader', () => {
+test('setup registers the installed kintone integration exactly once', () => {
   const before = readSettings();
   try {
-    const localLoader = join(setupRoot, 'agent/extensions/kintone.ts');
-    for (const entry of [integrationPath, `+${integrationPath}`, 'C:/retired/kintone-workspace/integrations/pi.js', integrationPath.replaceAll('/', '\\')]) {
-      writeFileSync(settingsPath, JSON.stringify({ ...before, extensions: [entry] }));
-      setup();
-      assert.deepEqual(readSettings().extensions, []);
-      assert.ok(!readSettings().extensions.includes(localLoader));
-      setup();
-      assert.deepEqual(readSettings().extensions, []);
-    }
+    writeFileSync(settingsPath, JSON.stringify({ ...before, extensions: [integrationPath, integrationPath] }));
+    setup();
+    assert.deepEqual(readSettings().extensions, [integrationPath]);
+    setup();
+    assert.deepEqual(readSettings().extensions, [integrationPath]);
   } finally {
     writeFileSync(settingsPath, JSON.stringify(before));
   }
 });
 
-test('setup does not require an optional lazy workspace integration', () => {
-  const before = readSettings();
+test('setup requires the installed integration before changing settings', () => {
+  const before = readFileSync(settingsPath);
   rmSync(integrationPath);
   try {
-    setup();
-    assert.equal(existsSync(integrationPath), false);
-    assert.deepEqual(readSettings(), before);
+    assert.throws(setup, /Required workspace integration is missing/);
+    assert.deepEqual(readFileSync(settingsPath), before);
   } finally {
     writeFileSync(integrationPath, integrationFixture);
   }
@@ -149,11 +144,13 @@ test('Pi discovers the local notifier once without official plan mode or notifie
   const { discoverAndLoadExtensions } = await import(pathToFileURL(join(packageRoot, 'dist/core/extensions/loader.js')).href);
   const result = await discoverAndLoadExtensions(readSettings().extensions, setupRoot, join(setupRoot, 'agent'));
   assert.deepEqual(result.errors, []);
-  assert.equal(result.extensions.filter(({ path }) => path === integrationPath).length, 0);
-  const kintone = result.extensions.filter(({ path }) => path === join(setupRoot, 'agent/extensions/kintone.ts'));
-  assert.equal(kintone.length, 1);
-  assert.deepEqual([...kintone[0].tools.keys()], ['kintone_connect']);
-  assert.deepEqual(result.runtime.mcpServers.list(), []);
+  assert.equal(result.extensions.filter(({ path }) => path === integrationPath).length, 1);
+  assert.ok(result.extensions.every(extension => !extension.tools.has('kintone_connect')));
+  assert.equal(existsSync(join(setupRoot, 'agent/extensions/kintone.ts')), false);
+  const servers = result.runtime.mcpServers.list();
+  assert.equal(servers.length, 1);
+  assert.equal(servers[0].name, 'kintone');
+  assert.deepEqual(servers[0].config, { command: process.execPath });
   const notifications = result.extensions.filter(({ path }) => path === join(setupRoot, 'agent/extensions/notify.ts'));
   assert.equal(notifications.length, 1);
   assert.deepEqual([...notifications[0].handlers.keys()], ['agent_settled']);
