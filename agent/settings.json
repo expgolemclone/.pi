@@ -16,5 +16,6 @@
   "defaultModel": "gpt-6.1-sol",
   "hideThinkingBlock": false,
   "defaultThinkingLevel": "max",
-  "lastChangelogVersion": "1.4.0"
+  "lastChangelogVersion": "1.4.0",
+  "deviceId": "e72c129f-1c9d-4186-9d0f-45013cb02137"
 }
