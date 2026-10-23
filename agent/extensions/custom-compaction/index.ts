@@ -2,7 +2,6 @@ import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { convertToLlm, serializeConversation } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { applyServiceTier } from "../agents-settings/settings.ts";
 
 export default function (pi: ExtensionAPI) {
   pi.on("session_before_compact", async (event, ctx) => {
@@ -14,12 +13,7 @@ export default function (pi: ExtensionAPI) {
       if (!systemPrompt) throw new Error("COMPACTION.md must not be empty.");
 
       const { preparation, customInstructions, signal } = event;
-      const { messagesToSummarize, turnPrefixMessages, previousSummary, settings } = preparation;
-      const maxTokens = Math.min(
-        Math.floor(0.8 * settings.reserveTokens),
-        model.maxTokens > 0 ? model.maxTokens : Number.POSITIVE_INFINITY,
-      );
-      if (maxTokens < 1) throw new Error("Compaction output budget must be positive.");
+      const { messagesToSummarize, turnPrefixMessages, previousSummary } = preparation;
 
       const response = await ctx.modelRegistry.streamSimple(model, {
         systemPrompt,
@@ -36,12 +30,10 @@ export default function (pi: ExtensionAPI) {
           timestamp: Date.now(),
         }],
       }, {
-        maxTokens,
         reasoning: pi.getThinkingLevel(),
         signal,
         cacheRetention: "none",
         sessionId: randomUUID(),
-        onPayload: (payload, requestModel) => applyServiceTier(payload, requestModel.provider),
       }).result();
 
       signal.throwIfAborted();

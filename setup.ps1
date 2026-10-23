@@ -5,8 +5,7 @@ if ([IO.Path]::GetFullPath($PSScriptRoot) -ne [IO.Path]::GetFullPath((Join-Path 
     throw 'Clone this repository into $HOME/.pi before running setup.ps1.'
 }
 Get-Command pi -ErrorAction Stop | Out-Null
-Get-Command node -ErrorAction Stop | Out-Null
-foreach ($relativePath in @('.agents/settings.json', '.agents/AGENTS.md', '.agents/skills')) {
+foreach ($relativePath in @('.agents/AGENTS.md', '.agents/skills')) {
     if (-not (Test-Path -LiteralPath (Join-Path $HOME $relativePath))) {
         throw "Required shared resource is missing: $relativePath"
     }
@@ -16,28 +15,8 @@ $kintoneIntegration = Join-Path $env:LOCALAPPDATA 'kintone-workspace/integration
 if (-not (Test-Path -LiteralPath $kintoneIntegration -PathType Leaf)) {
     throw "Required workspace integration is missing: $kintoneIntegration"
 }
-
-$settingsPath = Join-Path $PSScriptRoot 'agent/settings.json'
-$settings = if (Test-Path -LiteralPath $settingsPath) {
-    [IO.File]::ReadAllText($settingsPath) | ConvertFrom-Json -AsHashtable
-} else { @{} }
-foreach ($key in @('defaultProvider', 'defaultModel', 'defaultThinkingLevel')) {
-    $settings.Remove($key) | Out-Null
+$sound = Join-Path $PSScriptRoot 'agent/sounds/ready.wav'
+if (-not (Test-Path -LiteralPath $sound -PathType Leaf)) {
+    throw "Required completion sound is missing: $sound"
 }
-$extensions = if ($settings.ContainsKey('extensions')) { @($settings['extensions']) } else { @() }
-# Retire official plan-mode and notifier paths regardless of npm root or separator.
-$settings['extensions'] = @($extensions | Where-Object {
-    ($_ -replace '\\', '/') -notmatch '/@earendil-works/pi-coding-agent/examples/extensions/(notify\.ts|plan-mode(?:/index\.(?:ts|js))?)/?$'
-} | Select-Object -Unique)
-# The local notify.ts is auto-discovered. Generate its single audio asset.
-& node (Join-Path $PSScriptRoot 'tools/sounds.mjs')
-if ($LASTEXITCODE -ne 0) { throw 'Could not generate the Pi completion sound.' }
-$legacyCandidates = Join-Path $PSScriptRoot 'agent/sounds/candidates'
-if (Test-Path -LiteralPath $legacyCandidates) {
-    Remove-Item -LiteralPath $legacyCandidates -Recurse
-}
-$settings['defaultTools'] = @('read', 'powershell', 'edit', 'write', 'grep', 'find', 'ls', 'codemode')
-$settings['defaultProjectTrust'] = 'always'
-$settings['extensions'] = @($settings['extensions'] + $kintoneIntegration | Select-Object -Unique)
-$settings | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $settingsPath -Encoding utf8
-Write-Output 'Pi is configured to use shared .agents resources, PowerShell, and the local three-note completion notifier. Run /reload.'
+Write-Output 'Pi uses agent/settings.json and agent/models.json, shared .agents instructions and skills, and the bundled completion sound. Run /reload.'

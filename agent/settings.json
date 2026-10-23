@@ -1,0 +1,20 @@
+{
+  "defaultTools": [
+    "read",
+    "powershell",
+    "edit",
+    "write",
+    "grep",
+    "find",
+    "ls"
+  ],
+  "defaultProjectTrust": "never",
+  "extensions": [
+    "~/AppData/Local/kintone-workspace/integrations/pi.js"
+  ],
+  "defaultProvider": "openai",
+  "defaultModel": "gpt-6.1-sol",
+  "hideThinkingBlock": false,
+  "defaultThinkingLevel": "max",
+  "lastChangelogVersion": "1.4.0"
+}

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, cpSync, symlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -10,164 +11,89 @@ import { getPackageDir } from '@earendil-works/pi-coding-agent';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const packageRoot = getPackageDir();
-const planPath = join(packageRoot, 'examples/extensions/plan-mode/index.ts');
-const oldNotifyPath = join(packageRoot, 'examples/extensions/notify.ts');
 const notifyPath = join(root, 'agent/extensions/notify.ts');
 const soundPath = join(root, 'agent/sounds/ready.wav');
-// Exercise setup in an isolated home, never in the live user configuration.
 mkdirSync('C:/dev/tmp', { recursive: true });
 const home = mkdtempSync('C:/dev/tmp/pi-setup-test-');
 after(() => rmSync(home, { recursive: true, force: true }));
 const setupRoot = join(home, '.pi');
 mkdirSync(join(setupRoot, 'agent'), { recursive: true });
 symlinkSync(join(root, 'node_modules'), join(setupRoot, 'node_modules'), 'junction');
-for (const path of [
-  'setup.ps1', 'tools/sounds.mjs', 'tools/vendor', 'agent/mcp.json',
-  'agent/extensions/agents-settings', 'agent/extensions/custom-compaction',
-  'agent/extensions/notify.ts',
-]) {
+for (const path of ['setup.ps1', 'agent/mcp.json', 'agent/settings.json', 'agent/models.json',
+  'agent/sounds', 'agent/extensions/shared-instructions', 'agent/extensions/custom-compaction',
+  'agent/extensions/notify.ts']) {
   mkdirSync(dirname(join(setupRoot, path)), { recursive: true });
   cpSync(join(root, path), join(setupRoot, path), { recursive: true });
 }
 mkdirSync(join(home, '.agents/skills'), { recursive: true });
-writeFileSync(join(home, '.agents/settings.json'), '{}');
 writeFileSync(join(home, '.agents/AGENTS.md'), '# Test instructions\n');
-// The workspace owns its integration. Provide only a loader fixture here,
-// not a second MCP server implementation or credentials.
 const localAppData = join(home, 'AppData/Local');
 const integrationPath = join(localAppData, 'kintone-workspace/integrations/pi.js');
 mkdirSync(dirname(integrationPath), { recursive: true });
 const integrationFixture = "export default function (pi) { pi.registerMcpServer('kintone', { command: process.execPath }); }\n";
 writeFileSync(integrationPath, integrationFixture);
 const settingsPath = join(setupRoot, 'agent/settings.json');
-writeFileSync(settingsPath, JSON.stringify({ extensions: [], defaultProjectTrust: 'never', lastChangelogVersion: 'test-metadata' }));
-const readSettings = () => JSON.parse(readFileSync(settingsPath, 'utf8').replace(/^\uFEFF/, ''));
 const setup = () => execFileSync('mise.exe', ['exec', '--', 'pwsh', '-NoProfile', '-File', join(setupRoot, 'setup.ps1')], {
   encoding: 'utf8', env: { ...process.env, MISE_DATA_DIR: join(process.env.LOCALAPPDATA, 'mise'), USERPROFILE: home, LOCALAPPDATA: localAppData },
 });
 const setupSoundPath = join(setupRoot, 'agent/sounds/ready.wav');
 
-test('setup retires official plan mode and notifiers, generates one sound, and preserves runtime metadata', () => {
-  const before = readSettings();
-  const legacyRoot = 'C:/old/npm/@earendil-works/pi-coding-agent/examples/extensions';
-  const legacy = [
-    oldNotifyPath, `+${legacyRoot}/notify.ts`, planPath,
-    `+${legacyRoot}/plan-mode/index.ts`, `${legacyRoot}/plan-mode/index.js`,
-    `${legacyRoot}/plan-mode`, `${legacyRoot}/plan-mode/`,
-    `${legacyRoot}/plan-mode/index.ts`.replaceAll('/', '\\'),
-  ];
-  writeFileSync(settingsPath, JSON.stringify({ ...before, extensions: [...(before.extensions ?? []), ...legacy] }));
+test('setup validates prerequisites without rewriting native preferences or rebuilding assets', () => {
+  const files = ['agent/settings.json', 'agent/models.json', 'agent/mcp.json', 'agent/sounds/ready.wav'];
+  const before = files.map(path => readFileSync(join(setupRoot, path)));
   setup();
-  const first = readSettings();
-  assert.equal(first.defaultProjectTrust, 'always');
-  const firstSound = readFileSync(setupSoundPath);
   setup();
-  assert.deepEqual(readFileSync(join(setupRoot, 'agent/mcp.json')), readFileSync(join(root, 'agent/mcp.json')));
-  assert.deepEqual(readSettings(), first);
-  assert.deepEqual(readFileSync(setupSoundPath), firstSound);
-  assert.ok(first.extensions.every((entry) => !legacy.includes(entry)));
-  assert.deepEqual(first.extensions, [...new Set([...(before.extensions ?? []).filter((entry) =>
-    !/\/examples\/extensions\/(notify\.ts|plan-mode(?:\/index\.(?:ts|js))?)\/?$/.test(entry.replaceAll('\\', '/'))
-  ), integrationPath])]);
-  assert.deepEqual(first.defaultTools, ['read', 'powershell', 'edit', 'write', 'grep', 'find', 'ls', 'codemode']);
-  assert.ok(first.extensions.every((entry) => !entry.replaceAll('\\', '/').endsWith('/examples/extensions/notify.ts')));
-  assert.ok(!first.extensions.includes(notifyPath)); // loaded by discovery, not configured twice
-  assert.equal(existsSync(join(setupRoot, 'agent/sounds/candidates')), false);
-  for (const [key, value] of Object.entries(before)) {
-    if (!['extensions', 'skills', 'defaultTools', 'defaultProjectTrust', 'defaultProvider', 'defaultModel', 'defaultThinkingLevel'].includes(key)) {
-      assert.deepEqual(first[key], value);
-    }
-  }
+  files.forEach((path, index) => assert.deepEqual(readFileSync(join(setupRoot, path)), before[index]));
+  assert.equal(existsSync(join(home, '.agents/settings.json')), false);
+  assert.equal(existsSync(join(setupRoot, 'tools/sounds.mjs')), false);
+  assert.equal(existsSync(join(setupRoot, 'agent/sounds/validation.json')), false);
 });
 
-test('setup preserves native local package declarations without deploying dependencies', () => {
-  const before = readSettings();
-  try {
-    const packages = ['C:/mapped/pi-accounts'];
-    writeFileSync(settingsPath, JSON.stringify({ ...before, packages }));
-    setup();
-    assert.deepEqual(readSettings().packages, packages);
-    assert.equal(existsSync(join(setupRoot, 'agent/extensions/accounts')), false);
-  } finally { writeFileSync(settingsPath, JSON.stringify(before)); }
-});
-
-test('setup supports absent or empty extension lists and preserves unrelated entries', () => {
-  const before = readSettings();
-  try {
-    for (const extensions of [undefined, [], ['-builtin:mcp']]) {
-      const settings = { ...before, extensions };
-      writeFileSync(settingsPath, JSON.stringify(settings));
-      setup();
-      assert.deepEqual(readSettings().extensions, [...(extensions ?? []), integrationPath]);
-    }
-  } finally {
-    writeFileSync(settingsPath, JSON.stringify(before, null, 2));
-  }
-});
-
-test('setup registers the installed kintone integration exactly once', () => {
-  const before = readSettings();
-  try {
-    writeFileSync(settingsPath, JSON.stringify({ ...before, extensions: [integrationPath, integrationPath] }));
-    setup();
-    assert.deepEqual(readSettings().extensions, [integrationPath]);
-    setup();
-    assert.deepEqual(readSettings().extensions, [integrationPath]);
-  } finally {
-    writeFileSync(settingsPath, JSON.stringify(before));
-  }
-});
-
-test('setup requires the installed integration before changing settings', () => {
+test('setup leaves user model, thinking, tools, trust, resource selections and metadata untouched', () => {
   const before = readFileSync(settingsPath);
-  rmSync(integrationPath);
+  const selected = { defaultProvider: 'other', defaultModel: 'chosen', defaultThinkingLevel: 'low',
+    defaultTools: [], defaultProjectTrust: 'never', extensions: [], skills: ['./custom'],
+    packages: ['C:/mapped/pi-accounts'], lastChangelogVersion: 'test-metadata' };
+  writeFileSync(settingsPath, JSON.stringify(selected));
   try {
-    assert.throws(setup, /Required workspace integration is missing/);
-    assert.deepEqual(readFileSync(settingsPath), before);
-  } finally {
-    writeFileSync(integrationPath, integrationFixture);
+    const bytes = readFileSync(settingsPath);
+    setup();
+    assert.deepEqual(readFileSync(settingsPath), bytes);
+  } finally { writeFileSync(settingsPath, before); }
+});
+
+test('setup requires the installed integration and bundled audio instead of silently repairing them', () => {
+  for (const [path, pattern] of [[integrationPath, /Required workspace integration is missing/],
+    [setupSoundPath, /Required completion sound is missing/]]) {
+    const before = readFileSync(path);
+    rmSync(path);
+    try { assert.throws(setup, pattern); }
+    finally { writeFileSync(path, before); }
   }
 });
 
-test('setup preserves project-owned skill selections', () => {
-  const before = readSettings();
-  try {
-    for (const skills of [undefined, [], ['./custom-skills', '!**/skills/private']]) {
-      writeFileSync(settingsPath, JSON.stringify({ ...before, skills }));
-      setup();
-      assert.deepEqual(readSettings().skills, skills);
-    }
-  } finally { writeFileSync(settingsPath, JSON.stringify(before)); }
+test('bundled sound is the unchanged installed chime and retains its license', () => {
+  const wav = readFileSync(soundPath);
+  assert.equal(createHash('sha256').update(wav).digest('hex'), 'e5efb3b64c4abfc6b315530b737e89cebe6e11cb2a5b6e4b6958e2a007072039');
+  assert.equal(wav.toString('ascii', 0, 4), 'RIFF');
+  assert.equal(wav.toString('ascii', 8, 12), 'WAVE');
+  assert.match(readFileSync(join(root, 'agent/sounds/LICENSE.zzfx'), 'utf8'), /Copyright \(c\) 2019 Frank Force/);
 });
 
-test('Pi discovers the local notifier once without official plan mode or notifier capabilities', async () => {
-  const { discoverAndLoadExtensions } = await import(pathToFileURL(join(packageRoot, 'dist/core/extensions/loader.js')).href);
-  const result = await discoverAndLoadExtensions(readSettings().extensions, setupRoot, join(setupRoot, 'agent'));
+test('Pi discovers each extension once without a model-selection controller or connection wrapper', async () => {
+  const { discoverAndLoadExtensions } = await import(pathToFileURL(join(packageRoot, 'dist/core/extensions/loader.js')));
+  const result = await discoverAndLoadExtensions([integrationPath], setupRoot, join(setupRoot, 'agent'));
   assert.deepEqual(result.errors, []);
+  const paths = result.extensions.map(extension => extension.path);
+  assert.equal(new Set(paths).size, paths.length);
   assert.equal(result.extensions.filter(({ path }) => path === integrationPath).length, 1);
   assert.ok(result.extensions.every(extension => !extension.tools.has('kintone_connect')));
-  assert.equal(existsSync(join(setupRoot, 'agent/extensions/kintone.ts')), false);
-  const servers = result.runtime.mcpServers.list();
-  assert.equal(servers.length, 1);
-  assert.equal(servers[0].name, 'kintone');
-  assert.deepEqual(servers[0].config, { command: process.execPath });
-  const notifications = result.extensions.filter(({ path }) => path === join(setupRoot, 'agent/extensions/notify.ts'));
-  assert.equal(notifications.length, 1);
-  assert.deepEqual([...notifications[0].handlers.keys()], ['agent_settled']);
-  const compactions = result.extensions.filter(({ path }) => path === join(setupRoot, 'agent/extensions/custom-compaction/index.ts'));
-  assert.equal(compactions.length, 1);
-  assert.deepEqual([...compactions[0].handlers.keys()], ['session_before_compact']);
-  const promptPath = 'agent/extensions/custom-compaction/COMPACTION.md';
-  assert.deepEqual(readFileSync(join(setupRoot, promptPath)), readFileSync(join(root, promptPath)));
-  assert.equal(existsSync(join(setupRoot, 'agent/COMPACTION.md')), false);
-  assert.equal(existsSync(join(setupRoot, 'agent/extensions/custom-compaction.ts')), false);
-  assert.ok(result.extensions.every(({ path }) => path !== oldNotifyPath && path !== planPath));
-  for (const extension of result.extensions) {
-    assert.ok(!extension.commands.has('plan'));
-    assert.ok(!extension.commands.has('todos'));
-    assert.ok(!extension.flags.has('plan'));
-    assert.ok(!extension.shortcuts.has('ctrl+alt+p'));
-  }
+  assert.equal(result.runtime.mcpServers.list().length, 1);
+  const handlers = Object.fromEntries(result.extensions.map(extension => [extension.path, [...extension.handlers.keys()]]));
+  assert.deepEqual(handlers[join(setupRoot, 'agent/extensions/notify.ts')], ['agent_settled']);
+  assert.deepEqual(handlers[join(setupRoot, 'agent/extensions/custom-compaction/index.ts')], ['session_before_compact']);
+  assert.deepEqual(handlers[join(setupRoot, 'agent/extensions/shared-instructions/index.ts')], ['input', 'before_agent_start']);
+  assert.equal(existsSync(join(setupRoot, 'agent/extensions/agents-settings')), false);
 });
 
 function register(exec, extension = notifier, toast = { notify: (_options, done) => done(null) }) {
