@@ -1,8 +1,15 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { sdk } from './support/pi-runtime.mjs';
+
+test('instructions are a regular file managed directly by the Pi repository', () => {
+  const path = fileURLToPath(new URL('../agent/AGENTS.md', import.meta.url));
+  assert.ok(lstatSync(path).isFile());
+  assert.ok(readFileSync(path, 'utf8').trim());
+});
 
 function fixture(t) {
   const directory = mkdtempSync('C:/dev/tmp/pi-native-instructions-test-');

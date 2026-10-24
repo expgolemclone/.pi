@@ -2,9 +2,9 @@
 !/.gitignore
 !/package.json
 !/package-lock.json
-!/setup.ps1
 !/agent/
 /agent/*
+!/agent/AGENTS.md
 !/agent/mcp.json
 !/agent/settings.json
 !/agent/models.json
@@ -23,7 +23,7 @@
 /tests/*
 !/tests/native-settings.test.mjs
 !/tests/instructions.test.mjs
-!/tests/setup.test.mjs
+!/tests/notifications.test.mjs
 !/tests/mcp.test.mjs
 !/tests/compaction.test.mjs
 !/tests/support/
