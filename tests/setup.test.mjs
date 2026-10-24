@@ -7,10 +7,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import test, { after } from 'node:test';
 import notifier, { notificationCommand } from '../agent/extensions/notify.ts';
 import WindowsToaster from 'node-notifier/notifiers/toaster.js';
-import { getPackageDir } from '@earendil-works/pi-coding-agent';
+import { sdk } from './support/pi-runtime.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const packageRoot = getPackageDir();
 const notifyPath = join(root, 'agent/extensions/notify.ts');
 const soundPath = join(root, 'agent/sounds/ready.wav');
 mkdirSync('C:/dev/tmp', { recursive: true });
@@ -20,13 +19,14 @@ const setupRoot = join(home, '.pi');
 mkdirSync(join(setupRoot, 'agent'), { recursive: true });
 symlinkSync(join(root, 'node_modules'), join(setupRoot, 'node_modules'), 'junction');
 for (const path of ['setup.ps1', 'agent/mcp.json', 'agent/settings.json', 'agent/models.json',
-  'agent/sounds', 'agent/extensions/shared-instructions', 'agent/extensions/custom-compaction',
+  'agent/sounds', 'agent/extensions/custom-compaction',
   'agent/extensions/notify.ts']) {
   mkdirSync(dirname(join(setupRoot, path)), { recursive: true });
   cpSync(join(root, path), join(setupRoot, path), { recursive: true });
 }
 mkdirSync(join(home, '.agents/skills'), { recursive: true });
 writeFileSync(join(home, '.agents/AGENTS.md'), '# Test instructions\n');
+cpSync(join(home, '.agents/AGENTS.md'), join(setupRoot, 'agent/AGENTS.md'));
 const localAppData = join(home, 'AppData/Local');
 const integrationPath = join(localAppData, 'kintone-workspace/integrations/pi.js');
 mkdirSync(dirname(integrationPath), { recursive: true });
@@ -39,7 +39,7 @@ const setup = () => execFileSync('mise.exe', ['exec', '--', 'pwsh', '-NoProfile'
 const setupSoundPath = join(setupRoot, 'agent/sounds/ready.wav');
 
 test('setup validates prerequisites without rewriting native preferences or rebuilding assets', () => {
-  const files = ['agent/settings.json', 'agent/models.json', 'agent/mcp.json', 'agent/sounds/ready.wav'];
+  const files = ['agent/settings.json', 'agent/models.json', 'agent/mcp.json', 'agent/AGENTS.md', 'agent/sounds/ready.wav'];
   const before = files.map(path => readFileSync(join(setupRoot, path)));
   setup();
   setup();
@@ -62,8 +62,9 @@ test('setup leaves user model, thinking, tools, trust, resource selections and m
   } finally { writeFileSync(settingsPath, before); }
 });
 
-test('setup requires the installed integration and bundled audio instead of silently repairing them', () => {
-  for (const [path, pattern] of [[integrationPath, /Required workspace integration is missing/],
+test('setup requires shared instructions, the installed integration and bundled audio without repairing them', () => {
+  for (const [path, pattern] of [[join(home, '.agents/AGENTS.md'), /Required shared resource is missing/],
+    [integrationPath, /Required workspace integration is missing/],
     [setupSoundPath, /Required completion sound is missing/]]) {
     const before = readFileSync(path);
     rmSync(path);
@@ -81,7 +82,7 @@ test('bundled sound is the unchanged installed chime and retains its license', (
 });
 
 test('Pi discovers each extension once without a model-selection controller or connection wrapper', async () => {
-  const { discoverAndLoadExtensions } = await import(pathToFileURL(join(packageRoot, 'dist/core/extensions/loader.js')));
+  const { discoverAndLoadExtensions } = sdk;
   const result = await discoverAndLoadExtensions([integrationPath], setupRoot, join(setupRoot, 'agent'));
   assert.deepEqual(result.errors, []);
   const paths = result.extensions.map(extension => extension.path);
@@ -92,7 +93,7 @@ test('Pi discovers each extension once without a model-selection controller or c
   const handlers = Object.fromEntries(result.extensions.map(extension => [extension.path, [...extension.handlers.keys()]]));
   assert.deepEqual(handlers[join(setupRoot, 'agent/extensions/notify.ts')], ['agent_settled']);
   assert.deepEqual(handlers[join(setupRoot, 'agent/extensions/custom-compaction/index.ts')], ['session_before_compact']);
-  assert.deepEqual(handlers[join(setupRoot, 'agent/extensions/shared-instructions/index.ts')], ['input', 'before_agent_start']);
+  assert.equal(existsSync(join(setupRoot, 'agent/extensions/shared-instructions')), false);
   assert.equal(existsSync(join(setupRoot, 'agent/extensions/agents-settings')), false);
 });
 

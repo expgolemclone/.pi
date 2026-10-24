@@ -1,15 +1,11 @@
 import assert from 'node:assert/strict';
-import { findPackageJSON } from 'node:module';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
-import { getPackageDir } from '@earendil-works/pi-coding-agent';
+import { aiRoot, sdk } from './support/pi-runtime.mjs';
 
 const config = JSON.parse(readFileSync(new URL('../agent/mcp.json', import.meta.url), 'utf8'));
-const packageRoot = getPackageDir();
-const aiRoot = dirname(findPackageJSON('@earendil-works/pi-ai', pathToFileURL(join(packageRoot, 'dist/index.js'))));
-const sdk = await import(pathToFileURL(join(packageRoot, 'dist/index.js')));
 const { fauxProvider, fauxAssistantMessage, fauxToolCall } = await import(pathToFileURL(
   join(aiRoot, 'dist/providers/faux.js')));
 

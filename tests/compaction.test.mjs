@@ -1,17 +1,13 @@
 import assert from 'node:assert/strict';
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { findPackageJSON } from 'node:module';
+import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
-import { getPackageDir } from '@earendil-works/pi-coding-agent';
+import { aiRoot, packageRoot, sdk } from './support/pi-runtime.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const packageRoot = getPackageDir();
-const aiRoot = dirname(findPackageJSON('@earendil-works/pi-ai', pathToFileURL(join(packageRoot, 'dist/index.js'))));
-const { loadExtensions, discoverAndLoadExtensions } = await import(pathToFileURL(join(packageRoot, 'dist/core/extensions/loader.js')));
-const { createAgentSession, ModelRuntime, SessionManager, SettingsManager } =
-  await import(pathToFileURL(join(packageRoot, 'dist/index.js')));
+const { discoverAndLoadExtensions, createAgentSession, ModelRuntime, SessionManager, SettingsManager } = sdk;
+const { loadExtensions } = await import(pathToFileURL(join(packageRoot, 'dist/core/extensions/loader.js')));
 const { prepareCompaction } = await import(pathToFileURL(join(packageRoot, 'dist/core/compaction/compaction.js')));
 const { fauxProvider, fauxAssistantMessage } = await import(pathToFileURL(
   join(aiRoot, 'dist/providers/faux.js'),

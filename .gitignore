@@ -14,10 +14,6 @@
 !/agent/sounds/LICENSE.zzfx
 !/agent/extensions/
 /agent/extensions/*
-!/agent/extensions/shared-instructions/
-/agent/extensions/shared-instructions/*
-!/agent/extensions/shared-instructions/index.ts
-!/agent/extensions/shared-instructions/instructions.ts
 !/agent/extensions/notify.ts
 !/agent/extensions/custom-compaction/
 /agent/extensions/custom-compaction/*
@@ -26,10 +22,13 @@
 !/tests/
 /tests/*
 !/tests/native-settings.test.mjs
-!/tests/shared-instructions.test.mjs
+!/tests/instructions.test.mjs
 !/tests/setup.test.mjs
 !/tests/mcp.test.mjs
 !/tests/compaction.test.mjs
+!/tests/support/
+/tests/support/*
+!/tests/support/pi-runtime.mjs
 !/tools/
 /tools/*
 !/tools/preview-sound.mjs

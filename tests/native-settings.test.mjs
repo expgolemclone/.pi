@@ -1,28 +1,31 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { findPackageJSON } from 'node:module';
-import { dirname, join } from 'node:path';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
-import { getPackageDir, ModelRegistry, ModelRuntime, SessionManager, SettingsManager } from '@earendil-works/pi-coding-agent';
+import { aiRoot, packageRoot, sdk } from './support/pi-runtime.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const packageRoot = getPackageDir();
-const aiRoot = dirname(findPackageJSON('@earendil-works/pi-ai', pathToFileURL(join(packageRoot, 'dist/index.js'))));
-const config = JSON.parse(readFileSync(join(root, 'agent/settings.json'), 'utf8'));
+const { ModelRegistry, ModelRuntime, SessionManager, SettingsManager } = sdk;
 const { loadExtensions } = await import(pathToFileURL(join(packageRoot, 'dist/core/extensions/loader.js')));
+const config = JSON.parse(readFileSync(join(root, 'agent/settings.json'), 'utf8'));
 const moduleUrl = path => JSON.stringify(pathToFileURL(path).href);
+
+test('tests use mise-managed Pi without a project-local installation', () => {
+  const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+  assert.equal(manifest.dependencies?.['@earendil-works/pi-coding-agent'], undefined);
+  assert.equal(manifest.devDependencies?.['@earendil-works/pi-coding-agent'], undefined);
+  assert.equal(existsSync(join(root, 'node_modules/@earendil-works/pi-coding-agent')), false);
+});
 
 function fixture(t) {
   const home = mkdtempSync('C:/dev/tmp/pi-native-settings-test-');
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const agentDir = join(home, '.pi/agent');
-  mkdirSync(agentDir, { recursive: true });
-  mkdirSync(join(home, '.agents'));
-  writeFileSync(join(home, '.agents/AGENTS.md'), '# Fixture instructions\n');
+  mkdirSync(join(agentDir, 'extensions'), { recursive: true });
+  writeFileSync(join(agentDir, 'AGENTS.md'), '# Fixture instructions\n');
   for (const file of ['settings.json', 'models.json']) cpSync(join(root, 'agent', file), join(agentDir, file));
-  cpSync(join(root, 'agent/extensions/shared-instructions'), join(agentDir, 'extensions/shared-instructions'), { recursive: true });
   writeFileSync(join(agentDir, 'settings.json'), JSON.stringify({ ...config, extensions: [],
     enableInstallTelemetry: false, cacheWarming: 'off', defaultProjectTrust: 'never' }));
   writeFileSync(join(agentDir, 'auth.json'), JSON.stringify({ openai: {
