@@ -34,9 +34,12 @@ export default function (pi: ExtensionAPI, toast = new WindowsToaster({ withFall
   // Notification-only final boundary: no alerts during retries or continuations.
   pi.on("agent_settled", async (_event, ctx) => {
     if (ctx.mode !== "tui" || process.platform !== "win32") return;
-    await promisify(toast.notify.bind(toast))({ title: "Pi", message: "Ready for input", sound: false });
     const { command, args, options } = notificationCommand();
-    const result = await pi.exec(command, args, options);
+    // Toast callbacks wait for dismissal; start playback without waiting for them.
+    const [result] = await Promise.all([
+      pi.exec(command, args, options),
+      promisify(toast.notify.bind(toast))({ title: "Pi", message: "Ready for input", sound: false }),
+    ]);
     if (result.code !== 0 || result.killed) {
       throw new Error(`Pi notification failed (${result.code}, killed=${result.killed}): ${result.stderr}`);
     }

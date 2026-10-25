@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, cpSync, symlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { promisify } from 'node:util';
 import test, { after } from 'node:test';
 import notifier, { notificationCommand } from '../agent/extensions/notify.ts';
 import WindowsToaster from 'node-notifier/notifiers/toaster.js';
@@ -85,6 +86,35 @@ test('notifier executes once at settlement only in interactive mode', async (t) 
   assert.deepEqual(options, { timeout: 10000 });
 });
 
+test('toast and audio start together and settlement waits for both', async (t) => {
+  for (const first of ['toast', 'audio']) {
+    await t.test(`${first} completes first`, async (t) => {
+      const audio = Promise.withResolvers();
+      const dismissal = Promise.withResolvers();
+      const exec = t.mock.fn(() => audio.promise);
+      const toast = { notify: t.mock.fn((_options, done) => { dismissal.promise.then(() => done(null), done); }) };
+      let finished = false;
+      const pending = register(exec, notifier, toast)({}, { mode: 'tui' }).then(() => { finished = true; });
+      const result = { code: 0, killed: false, stdout: '', stderr: '' };
+      try {
+        assert.equal(toast.notify.mock.callCount(), 1);
+        assert.equal(exec.mock.callCount(), 1);
+        if (first === 'toast') dismissal.resolve();
+        else audio.resolve(result);
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(finished, false);
+      } finally {
+        dismissal.resolve();
+        audio.resolve(result);
+        await pending;
+      }
+      assert.equal(finished, true);
+      assert.equal(toast.notify.mock.callCount(), 1);
+      assert.equal(exec.mock.callCount(), 1);
+    });
+  }
+});
+
 test('notification failures are visible and never invoke a fallback sound', async (t) => {
   for (const failure of [{ code: 1, killed: false }, { code: 0, killed: true }]) {
     const exec = t.mock.fn(async () => ({ ...failure, stderr: 'test failure', stdout: '' }));
@@ -93,12 +123,20 @@ test('notification failures are visible and never invoke a fallback sound', asyn
   }
 });
 
-test('native toast errors are visible without an audio or legacy fallback', async (t) => {
-  const exec = t.mock.fn();
+test('audio execution rejections remain visible without suppressing the toast', async (t) => {
+  const exec = t.mock.fn(async () => { throw new Error('audio test failure'); });
+  const toast = { notify: t.mock.fn((_options, done) => done(null)) };
+  await assert.rejects(register(exec, notifier, toast)({}, { mode: 'tui' }), /audio test failure/);
+  assert.equal(exec.mock.callCount(), 1);
+  assert.equal(toast.notify.mock.callCount(), 1);
+});
+
+test('native toast errors remain visible without suppressing audio or invoking a fallback', async (t) => {
+  const exec = t.mock.fn(async () => ({ code: 0, killed: false, stdout: '', stderr: '' }));
   const toast = { notify: t.mock.fn((_options, done) => done(new Error('toast test failure'))) };
   await assert.rejects(register(exec, notifier, toast)({}, { mode: 'tui' }), /toast test failure/);
   assert.equal(toast.notify.mock.callCount(), 1);
-  assert.equal(exec.mock.callCount(), 0);
+  assert.equal(exec.mock.callCount(), 1);
   assert.match(readFileSync(notifyPath, 'utf8'), /new WindowsToaster\(\{ withFallback: false \}\)/);
 });
 
@@ -138,7 +176,7 @@ test('real notification plays under Restricted without a .ps1 or policy relaxati
     assert.ok(script.includes(`$SoundPath = '${fixtureSoundPath}'`));
     assert.ok(!args.includes('-File'));
     assert.ok(!args.includes('-ExecutionPolicy'));
-    const stdout = execFileSync(command, [...args.slice(0, 3), '-ExecutionPolicy', 'Restricted', ...args.slice(3)], { ...options, encoding: 'utf8' });
+    const { stdout } = await promisify(execFile)(command, [...args.slice(0, 3), '-ExecutionPolicy', 'Restricted', ...args.slice(3)], { ...options, encoding: 'utf8' });
     return { code: 0, killed: false, stdout, stderr: '' };
   }, isolatedNotifier, new WindowsToaster({ withFallback: false }));
   await settled({ type: 'agent_settled' }, { mode: 'tui' });
