@@ -27,7 +27,7 @@ Use jj instead of git. Follow Conventional Commits.
   - If any bookmark other than `main` exists, ask before starting.
 - If there are uncommitted changes, commit and push them.
 - Create workspaces under `C:\dev\tmp` with `--sparse-patterns empty`.
-  - Do not create temporary working files anywhere else. Do not read other's temporary working files.
+  - Store temporary files only under `C:\dev\tmp`. Do not read other sessions' temporary files.
   - Minimize SSD writes by materializing only necessary files.
   - Do not restrict repository inspection or reading.
 - Verify that it works, even if doing so affects the real environment.
