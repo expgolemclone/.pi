@@ -26,9 +26,11 @@
 !/tests/notifications.test.mjs
 !/tests/mcp.test.mjs
 !/tests/compaction.test.mjs
+!/tests/restore-pi-sessions.test.mjs
 !/tests/support/
 /tests/support/*
 !/tests/support/pi-runtime.mjs
 !/tools/
 /tools/*
 !/tools/preview-sound.mjs
+!/tools/restore-pi-sessions.ps1
