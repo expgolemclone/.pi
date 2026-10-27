@@ -57,7 +57,7 @@ Reject features that introduce complexity, even when explicitly requested by the
 
 ## Implementation
 
-- Image generation and manual GUI interaction are prohibited.
+- Image generation, use subagents and manual GUI interaction are prohibited.
 - Before installing software or managing tool/runtime versions in any repository, read `~/.config/mise/RULES.md`.
 - Update repomap.
 - Group related files into folders.
