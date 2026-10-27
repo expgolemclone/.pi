@@ -40,15 +40,11 @@ $powerShell = & $mise which pwsh
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $powerShell -PathType Leaf)) {
     throw 'Could not resolve mise-managed PowerShell.'
 }
-$terminalArguments = [Collections.Generic.List[string]]::new()
-$terminalArguments.AddRange([string[]]@('-w', 'new'))
 foreach ($session in $sessions) {
-    if ($terminalArguments.Count -gt 2) { $terminalArguments.Add(';') }
     $command = '$ErrorActionPreference = ''Stop''; Set-Location -LiteralPath ''{0}''; & ''{1}'' exec -- pi --session ''{2}''' -f
         $session.Cwd.Replace("'", "''"), $mise.Replace("'", "''"), $session.Path.Replace("'", "''")
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
-    $terminalArguments.AddRange([string[]]@('new-tab', $powerShell, '-NoLogo', '-NoProfile', '-NoExit', '-EncodedCommand', $encoded))
     Write-Output "Resuming $($session.Path) from $($session.Cwd)"
+    & wt.exe -w new new-tab $powerShell -NoLogo -NoProfile -NoExit -EncodedCommand $encoded
+    if ($LASTEXITCODE -ne 0) { throw "Windows Terminal failed with exit code $LASTEXITCODE." }
 }
-& wt.exe @terminalArguments
-if ($LASTEXITCODE -ne 0) { throw "Windows Terminal failed with exit code $LASTEXITCODE." }

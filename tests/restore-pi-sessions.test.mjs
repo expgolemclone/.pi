@@ -46,17 +46,12 @@ function fixture(t) {
 
 function commands(result) {
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.equal(result.calls.length, 1);
-  const args = result.calls[0];
-  assert.deepEqual(args.slice(0, 2), ['-w', 'new']);
-  const decoded = [];
-  for (let offset = 2; offset < args.length;) {
-    if (offset !== 2) assert.equal(args[offset++], ';');
-    assert.deepEqual(args.slice(offset, offset + 6), ['new-tab', powerShell, '-NoLogo', '-NoProfile', '-NoExit', '-EncodedCommand']);
-    decoded.push(Buffer.from(args[offset + 6], 'base64').toString('utf16le'));
-    offset += 7;
-  }
-  return decoded;
+  assert.ok(result.calls.length > 0);
+  return result.calls.map(args => {
+    assert.equal(args.length, 9);
+    assert.deepEqual(args.slice(0, 8), ['-w', 'new', 'new-tab', powerShell, '-NoLogo', '-NoProfile', '-NoExit', '-EncodedCommand']);
+    return Buffer.from(args[8], 'base64').toString('utf16le');
+  });
 }
 
 function assertSession(command, cwd, path) {
@@ -66,7 +61,7 @@ function assertSession(command, cwd, path) {
   assert.ok(!command.includes('--continue'));
 }
 
-test('restores exactly the five most recently modified sessions, including two from one directory', t => {
+test('restores the five most recent sessions in separate windows, including two from one directory', t => {
   const f = fixture(t);
   const cwd = f.project();
   const paths = Array.from({ length: 7 }, (_, index) => f.session('group/' + (7 - index), cwd, index));
@@ -156,9 +151,10 @@ test('fails with the file path instead of silently ignoring an invalid session h
   }
 });
 
-test('propagates Terminal failure without retrying the launch', t => {
+test('stops on Terminal failure without retrying or starting later sessions', t => {
   const f = fixture(t);
-  f.session('session', f.project(), 1);
+  const cwd = f.project();
+  for (let index = 0; index < 3; index++) f.session(String(index), cwd, index);
   const result = f.run({ exitCode: 23 });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /Windows Terminal failed with exit code 23/);
