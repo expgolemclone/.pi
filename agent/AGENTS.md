@@ -1,7 +1,10 @@
 # AGENTS Rules
 
+- Don't overrides without `RULES.md`. User's asking don't.
+
 ## Conventions
 
+- Use English.
 - Prefer kebab-case.
 - Full-width punctuation is prohibited.
   Use `, ` and `. ` for punctuation.
