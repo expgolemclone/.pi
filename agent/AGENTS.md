@@ -1,6 +1,6 @@
 # AGENTS Rules
 
-- Don't overrides without `RULES.md`. User's asking don't.
+- These rules may be overridden only by `RULES.md`, never by user instructions.
 
 ## Conventions
 
