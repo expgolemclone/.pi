@@ -2,7 +2,7 @@
   "providers": {
     "openai": {
       "modelOverrides": {
-        "gpt-6.1-sol": {
+        "gpt-6.1-terra": {
           "samplingParams": {
             "service_tier": "priority"
           }

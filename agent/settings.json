@@ -13,7 +13,7 @@
     "~/AppData/Local/kintone-workspace/integrations/pi.js"
   ],
   "defaultProvider": "openai",
-  "defaultModel": "gpt-6.1-sol",
+  "defaultModel": "gpt-6.1-terra",
   "hideThinkingBlock": false,
   "defaultThinkingLevel": "max",
   "lastChangelogVersion": "1.4.0",

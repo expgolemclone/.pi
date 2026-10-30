@@ -97,12 +97,14 @@ test('real CLI preserves the model and thinking restored from a session', t => {
 
 test('native model sampling parameters keep priority for normal and custom-compaction OAuth requests', async t => {
   const f = fixture(t);
+  cpSync(join(sdk.getAgentDir(), 'models-store.json'), join(f.agentDir, 'models-store.json'));
   const bodies = [];
   t.mock.method(globalThis, 'fetch', async (url, options) => {
     assert.ok(String(url).startsWith('https://api.openai.com/v1/responses'), `Unexpected network request: ${url}`);
     const headers = new Headers(options.headers);
     assert.equal(headers.get('authorization'), 'Bearer fixture-oauth-access');
     const body = JSON.parse(options.body);
+    assert.equal(body.model, config.defaultModel);
     bodies.push(body);
     const item = { type: 'message', id: 'fixture-message', role: 'assistant', status: 'completed',
       content: [{ type: 'output_text', text: 'fixture checkpoint', annotations: [] }] };
@@ -116,7 +118,7 @@ test('native model sampling parameters keep priority for normal and custom-compa
     });
   });
   const runtime = await ModelRuntime.create({ authPath: join(f.agentDir, 'auth.json'),
-    modelsPath: join(f.agentDir, 'models.json'), refreshOnCreate: false });
+    modelsPath: join(f.agentDir, 'models.json'), allowModelNetwork: false });
   const registry = new ModelRegistry(runtime);
   const model = registry.find(config.defaultProvider, config.defaultModel);
   assert.ok(model);
