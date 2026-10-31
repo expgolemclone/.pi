@@ -1,7 +1,6 @@
 *
 !/.gitignore
 !/package.json
-!/package-lock.json
 !/agent/
 /agent/*
 !/agent/AGENTS.md
@@ -30,6 +29,7 @@
 !/tests/support/
 /tests/support/*
 !/tests/support/pi-runtime.mjs
+!/tests/support/notification-window.ps1
 !/tools/
 /tools/*
 !/tools/preview-sound.mjs

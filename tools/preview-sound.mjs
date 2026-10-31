@@ -1,6 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { notificationCommand } from '../agent/extensions/notify.ts';
+import { soundCommand } from '../agent/extensions/notify.ts';
 
-// Exercise the same toast and audio command as Pi, without a .ps1 dependency.
-const { command, args, options } = notificationCommand();
+const { command, args, options } = soundCommand();
 execFileSync(command, args, { ...options, stdio: 'inherit' });
