@@ -57,16 +57,31 @@ try {
     if ($after -eq $piHandle) { throw 'Restoring the Pi fixture activated its window.' }
     [IO.File]::WriteAllText($queryPath, 'query')
     Wait-Until { Test-Path -LiteralPath $colorPath } 10 'The Pi fixture did not report its terminal background.'
-    $color = [IO.File]::ReadAllText($colorPath)
-    if ($color -ne 'rgb:0606/4040/2b2b') { throw "Unexpected terminal background: $color" }
+    $color = [IO.File]::ReadAllText($colorPath) | ConvertFrom-Json
+    if ($color.background.r -ne 255 -or $color.background.g -ne 255 -or $color.background.b -ne 255 -or
+        $color.foreground.r -ne 0 -or $color.foreground.g -ne 0 -or $color.foreground.b -ne 0) {
+        throw "Unexpected ready colors: $([IO.File]::ReadAllText($colorPath))"
+    }
+    $theme = [IO.File]::ReadAllText($themePath) | ConvertFrom-Json
+    if ($theme.appearance -ne 'light' -or ($theme.text.r + $theme.text.g + $theme.text.b) -gt 384 -or
+        $theme.userMessageBg.r -lt 200 -or $theme.userMessageBg.g -lt 200 -or $theme.userMessageBg.b -lt 200) {
+        throw "Pi did not switch to readable light colors: $([IO.File]::ReadAllText($themePath))"
+    }
     Remove-Item -LiteralPath $colorPath -Force
     [IO.File]::WriteAllText($inputPath, 'input')
     Wait-Until { Test-Path -LiteralPath $keyPath } 10 'The Pi fixture did not receive the input.'
     if ([IO.File]::ReadAllText($keyPath) -ne 'x') { throw 'The completion indicator consumed the input.' }
     [IO.File]::WriteAllText($queryPath, 'query')
     Wait-Until { Test-Path -LiteralPath $colorPath } 10 'The Pi fixture did not report its restored background.'
-    $color = [IO.File]::ReadAllText($colorPath)
-    if ($color -ne 'rgb:1a1a/2b2b/3c3c') { throw "Unexpected restored background: $color" }
+    $color = [IO.File]::ReadAllText($colorPath) | ConvertFrom-Json
+    if ($color.background.r -ne 26 -or $color.background.g -ne 43 -or $color.background.b -ne 60 -or
+        $color.foreground.r -ne 170 -or $color.foreground.g -ne 187 -or $color.foreground.b -ne 204) {
+        throw "Unexpected restored colors: $([IO.File]::ReadAllText($colorPath))"
+    }
+    $theme = [IO.File]::ReadAllText($themePath) | ConvertFrom-Json
+    if ($theme.appearance -ne 'dark' -or ($theme.text.r + $theme.text.g + $theme.text.b) -lt 300) {
+        throw "Pi did not restore readable dark colors: $([IO.File]::ReadAllText($themePath))"
+    }
     Remove-Item -LiteralPath $donePath, $colorPath -Force
     [IO.File]::WriteAllText($goPath, 'go again')
     Wait-Until { Test-Path -LiteralPath $donePath } 15 'Pi fixture did not settle the second run.'
@@ -75,7 +90,12 @@ try {
     if ([PiNotificationTest]::GetForegroundWindow() -eq $piHandle) { throw 'The visible Pi window took focus.' }
     [IO.File]::WriteAllText($queryPath, 'query again')
     Wait-Until { Test-Path -LiteralPath $colorPath } 10 'The Pi fixture did not report its second background.'
-    if ([IO.File]::ReadAllText($colorPath) -ne 'rgb:0606/4040/2b2b') { throw 'The second run did not mark the background.' }
+    $color = [IO.File]::ReadAllText($colorPath) | ConvertFrom-Json
+    if ($color.background.r -ne 255 -or $color.background.g -ne 255 -or $color.background.b -ne 255) {
+        throw 'The second run did not mark the background white.'
+    }
+    $theme = [IO.File]::ReadAllText($themePath) | ConvertFrom-Json
+    if ($theme.appearance -ne 'light') { throw 'The second run did not use a light appearance.' }
     Write-Output 'Real Pi fixture restored only its own minimized window, did not activate it, and changed its background.'
 } finally {
     [IO.File]::WriteAllText($quitPath, 'quit')

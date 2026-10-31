@@ -26,8 +26,9 @@ writeFileSync(integrationPath, "export default function (pi) { pi.registerMcpSer
 
 const success = { code: 0, killed: false, stdout: '', stderr: '' };
 const decode = args => Buffer.from(args[6], 'base64').toString('utf16le');
-const originalColor = 'rgb:1111/2222/3333';
-const reply = `\x1b]11;${originalColor}\x07`;
+const originalColors = { foreground: { r: 170, g: 187, b: 204 }, background: { r: 17, g: 34, b: 51 } };
+const readyWrite = '\x1b]10;#000000\x07\x1b]11;#ffffff\x07';
+const restoredWrite = '\x1b]10;#aabbcc\x07\x1b]11;#112233\x07';
 
 function terminalEnvironment(t, value = 'fixture-terminal') {
   const old = process.env.WT_SESSION;
@@ -40,20 +41,35 @@ function harness(t, exec = t.mock.fn(async () => success), extension = notifier)
   const handlers = new Map();
   const writes = [];
   const widgets = [];
+  const appearances = [];
   let listener;
+  let resolveColors;
   let removed = false;
   const write = process.stdout.write.bind(process.stdout);
   t.mock.method(process.stdout, 'write', (value, ...args) => {
-    if (String(value).startsWith('\x1b]11;')) { writes.push(String(value)); return true; }
+    if (/^\x1b\]1[01];/.test(String(value))) { writes.push(String(value)); return true; }
     return write(value, ...args);
   });
+  const emit = process.stdin.emit.bind(process.stdin);
+  t.mock.method(process.stdin, 'emit', (event, ...args) => {
+    if (event === 'data' && /^\x1b\[\?997;[12]n$/.test(String(args[0]))) { appearances.push(args[0]); return true; }
+    return emit(event, ...args);
+  });
   const ctx = { mode: 'tui', ui: {
+    theme: { name: 'system', appearance: 'dark' },
     onTerminalInput: handler => { listener = handler; return () => { removed = true; }; },
-    setWidget: (key, value) => widgets.push([key, value]),
+    setWidget: (key, value) => {
+      if (typeof value === 'function') {
+        const component = value({ queryTerminalColors: () => new Promise(resolve => { resolveColors = resolve; }) });
+        value = component.render(80);
+      }
+      widgets.push([key, value]);
+    },
   } };
   extension({ on: (name, handler) => handlers.set(name, handler), exec });
   assert.deepEqual([...handlers.keys()], ['session_start', 'agent_start', 'agent_settled', 'session_shutdown']);
-  return { handlers, ctx, exec, writes, widgets, input: value => listener?.(value), removed: () => removed };
+  return { handlers, ctx, exec, writes, widgets, appearances, replyColors: colors => resolveColors(colors),
+    input: value => listener?.(value), removed: () => removed };
 }
 
 function start(h) { h.handlers.get('session_start')({}, h.ctx); }
@@ -116,26 +132,28 @@ test('without Windows Terminal only the sound is played', async t => {
   assert.deepEqual(h.widgets, []);
 });
 
-test('settlement starts sound and window lookup and restores the exact color on input', async t => {
+test('settlement switches to readable white and restores both colors on input', async t => {
   terminalEnvironment(t);
   const h = harness(t);
   start(h);
   const pending = settle(h);
-  assert.equal(h.writes[0], '\x1b]11;?\x07');
   const marker = h.widgets[0][1][0].match(/^Pi ready ([0-9a-f]{16})$/)[1];
-  assert.deepEqual(h.input(reply), { consume: true });
+  h.replyColors(originalColors);
   await pending;
   assert.equal(h.exec.mock.callCount(), 2);
   const calls = h.exec.mock.calls.map(call => decode(call.arguments[1]));
   assert.ok(calls.some(script => script.includes('$player.PlaySync()')));
   assert.ok(calls.some(script => script.includes(`$marker = '${marker}'`)));
-  assert.ok(h.writes.includes('\x1b]11;#06402b\x07'));
+  assert.ok(h.writes.includes(readyWrite));
+  assert.deepEqual(h.appearances, ['\x1b[?997;2n']);
   assert.deepEqual(h.widgets.at(-1), ['ready-window', undefined]);
-  assert.equal(h.input(reply), undefined); // replies to other clients are not consumed
+  assert.equal(h.input('\x1b]11;rgb:1111/2222/3333\x07'), undefined);
   h.input('\x1b[I');
-  assert.ok(!h.writes.includes(`\x1b]11;${originalColor}\x07`));
-  assert.equal(h.input('あ'), undefined);
-  assert.ok(h.writes.includes(`\x1b]11;${originalColor}\x07`));
+  assert.ok(!h.writes.includes(restoredWrite));
+  assert.equal(h.input('x'), undefined);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(h.writes.includes(restoredWrite));
+  assert.deepEqual(h.appearances, ['\x1b[?997;2n', '\x1b[?997;1n']);
   shutdown(h);
   assert.equal(h.removed(), true);
 });
@@ -146,13 +164,13 @@ test('shutdown and a programmatic new run restore the background exactly once', 
   start(h);
   for (const event of ['agent_start', 'session_shutdown']) {
     const pending = settle(h);
-    h.input(reply);
+    h.replyColors(originalColors);
     await pending;
     h.handlers.get(event)({}, h.ctx);
   }
-  assert.equal(h.writes.filter(value => value === `\x1b]11;${originalColor}\x07`).length, 2);
+  assert.equal(h.writes.filter(value => value === restoredWrite).length, 2);
   shutdown(h);
-  assert.equal(h.writes.filter(value => value === `\x1b]11;${originalColor}\x07`).length, 2);
+  assert.equal(h.writes.filter(value => value === restoredWrite).length, 2);
 });
 
 test('input during settlement cancels pending visual work without consuming the key or cancelling sound', async t => {
@@ -171,9 +189,27 @@ test('input during settlement cancels pending visual work without consuming the 
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(h.input('x'), undefined);
   await pending;
+  h.replyColors(originalColors);
+  await new Promise(resolve => setImmediate(resolve));
   assert.equal(windowAborted, true);
   assert.equal(exec.mock.callCount(), 2);
-  assert.ok(!h.writes.includes('\x1b]11;#06402b\x07'));
+  assert.ok(!h.writes.includes(readyWrite));
+  shutdown(h);
+});
+
+test('immediate input after the white change restores colors in order', async t => {
+  terminalEnvironment(t);
+  const h = harness(t);
+  start(h);
+  const pending = settle(h);
+  h.replyColors(originalColors);
+  await Promise.resolve();
+  assert.ok(h.writes.includes(readyWrite));
+  assert.equal(h.input('x'), undefined);
+  await pending;
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(h.writes, [readyWrite, restoredWrite]);
+  assert.deepEqual(h.appearances, ['\x1b[?997;2n', '\x1b[?997;1n']);
   shutdown(h);
 });
 
@@ -185,10 +221,10 @@ test('sound and window errors remain visible without suppressing either action',
   const h = harness(t, exec);
   start(h);
   const pending = settle(h);
-  h.input(reply);
+  h.replyColors(originalColors);
   await assert.rejects(pending, error => /sound failure/.test(error.message) && /window failure/.test(error.message));
   assert.equal(exec.mock.callCount(), 2);
-  assert.ok(h.writes.includes('\x1b]11;#06402b\x07'));
+  assert.ok(h.writes.includes(readyWrite));
   shutdown(h);
 });
 
@@ -196,9 +232,39 @@ test('a missing color reply is reported without suppressing sound or window look
   terminalEnvironment(t);
   const h = harness(t);
   start(h);
-  await assert.rejects(settle(h), /Could not query the terminal background color/);
+  const pending = settle(h);
+  h.replyColors({});
+  await assert.rejects(pending, /Could not query the terminal foreground and background colors/);
   assert.equal(h.exec.mock.callCount(), 2);
-  assert.ok(!h.writes.includes('\x1b]11;#06402b\x07'));
+  assert.ok(!h.writes.includes(readyWrite));
+  shutdown(h);
+});
+
+test('an existing light appearance is restored as light', async t => {
+  terminalEnvironment(t);
+  const h = harness(t);
+  h.ctx.ui.theme = { name: 'light', appearance: 'light' };
+  start(h);
+  const pending = settle(h);
+  h.replyColors(originalColors);
+  await pending;
+  h.input('x');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(h.appearances, ['\x1b[?997;2n', '\x1b[?997;2n']);
+  assert.ok(h.writes.includes(restoredWrite));
+  shutdown(h);
+});
+
+test('a dark fixed theme is not made unreadable', async t => {
+  terminalEnvironment(t);
+  const h = harness(t);
+  h.ctx.ui.theme = { name: 'dark', appearance: 'dark' };
+  start(h);
+  const pending = settle(h);
+  h.replyColors(originalColors);
+  await assert.rejects(pending, /requires Pi's system or a light theme/);
+  assert.equal(h.exec.mock.callCount(), 2);
+  assert.deepEqual(h.writes, []);
   shutdown(h);
 });
 
@@ -251,13 +317,14 @@ test('real Pi in Windows Terminal restores only its own minimized window without
   cpSync(join(root, 'agent/sounds'), join(agentDir, 'sounds'), { recursive: true });
   cpSync(join(root, 'agent/models.json'), join(agentDir, 'models.json'));
   const config = JSON.parse(readFileSync(join(root, 'agent/settings.json'), 'utf8'));
-  writeFileSync(join(agentDir, 'settings.json'), JSON.stringify({ ...config, extensions: [],
-    enableInstallTelemetry: false, cacheWarming: 'off', defaultProjectTrust: 'never' }));
+  const settings = JSON.stringify({ ...config, extensions: [],
+    enableInstallTelemetry: false, cacheWarming: 'off', defaultProjectTrust: 'never' });
+  writeFileSync(join(agentDir, 'settings.json'), settings);
   writeFileSync(join(agentDir, 'auth.json'), JSON.stringify({ openai: {
     type: 'oauth', access: 'fixture-oauth-access', refresh: 'fixture-refresh', expires: 9999999999999,
   } }));
   writeFileSync(join(agentDir, 'AGENTS.md'), '# Fixture instructions\n');
-  const paths = Object.fromEntries(['ready', 'go', 'done', 'query', 'color', 'input', 'key', 'quit'].map(name => [name, join(directory, name)]));
+  const paths = Object.fromEntries(['ready', 'go', 'done', 'query', 'color', 'theme', 'input', 'key', 'quit'].map(name => [name, join(directory, name)]));
   const moduleUrl = path => JSON.stringify(pathToFileURL(path).href);
   const fixture = String.raw`
     import { existsSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -275,22 +342,23 @@ test('real Pi in Windows Terminal restores only its own minimized window without
       } } }));
       faux.setResponses([fauxAssistantMessage('fixture answer'), fauxAssistantMessage('second fixture answer')]);
       let timer;
-      let unsubscribe;
-      let waitingForColor = false;
+      let tui;
       pi.on('session_start', (_event, ctx) => {
-        unsubscribe = ctx.ui.onTerminalInput(data => {
-          const match = data.match(/^\x1b\]11;([^\x07\x1b]+)(?:\x07|\x1b\\)$/);
-          if (waitingForColor && match) {
-            waitingForColor = false;
-            writeFileSync(paths.color, match[1]);
-            return { consume: true };
-          }
+        ctx.ui.setWidget('fixture-query', instance => {
+          tui = instance;
+          return { render: () => [], invalidate: () => {} };
         });
-        process.stdout.write('\x1b]11;#1a2b3c\x07');
+        process.stdout.write('\x1b]10;#aabbcc\x07\x1b]11;#1a2b3c\x07');
         writeFileSync(paths.ready, String(process.pid));
         timer = setInterval(() => {
           if (existsSync(paths.go) && ctx.isIdle()) { unlinkSync(paths.go); pi.sendUserMessage('fixture request'); }
-          if (existsSync(paths.query)) { unlinkSync(paths.query); waitingForColor = true; process.stdout.write('\x1b]11;?\x07'); }
+          if (existsSync(paths.query)) {
+            unlinkSync(paths.query);
+            void tui.queryTerminalColors({ timeoutMs: 1000 }).then(colors => {
+              writeFileSync(paths.theme, JSON.stringify({ appearance: ctx.ui.theme.appearance, text: ctx.ui.theme.colors.text, userMessageBg: ctx.ui.theme.colors.userMessageBg }));
+              writeFileSync(paths.color, JSON.stringify(colors));
+            });
+          }
           if (existsSync(paths.input)) {
             unlinkSync(paths.input);
             process.stdin.emit('data', Buffer.from('x'));
@@ -300,7 +368,7 @@ test('real Pi in Windows Terminal restores only its own minimized window without
         }, 100);
       });
       pi.on('agent_settled', () => writeFileSync(paths.done, 'settled'));
-      pi.on('session_shutdown', () => { clearInterval(timer); unsubscribe?.(); });
+      pi.on('session_shutdown', () => { clearInterval(timer); });
     }
   `;
   writeFileSync(join(agentDir, 'extensions/fixture.ts'), fixture);
@@ -309,7 +377,7 @@ test('real Pi in Windows Terminal restores only its own minimized window without
     cliPath: join(packageRoot, 'dist/bundle/cli.js'), pwshPath: pwsh,
     windowTitle: `pi-notify-test-${Date.now()}-${process.pid}`,
     readyPath: paths.ready, goPath: paths.go, donePath: paths.done, queryPath: paths.query,
-    colorPath: paths.color, inputPath: paths.input, keyPath: paths.key, quitPath: paths.quit };
+    colorPath: paths.color, themePath: paths.theme, inputPath: paths.input, keyPath: paths.key, quitPath: paths.quit };
   const literal = value => "'" + value.replaceAll("'", "''") + "'";
   const prefix = Object.entries(assignments).map(([name, value]) => `$${name} = ${literal(value)};`).join('\n');
   const driver = prefix + '\n' + readFileSync(join(root, 'tests/support/notification-window.ps1'), 'utf8');
@@ -322,4 +390,5 @@ test('real Pi in Windows Terminal restores only its own minimized window without
     assert.fail(`driver failed: code=${error.code} killed=${error.killed} signal=${error.signal}\nstdout=${error.stdout}\nstderr=${error.stderr}`);
   }
   assert.match(result.stdout, /restored only its own minimized window, did not activate it, and changed its background/);
+  assert.equal(readFileSync(join(agentDir, 'settings.json'), 'utf8'), settings);
 });

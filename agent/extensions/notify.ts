@@ -5,14 +5,22 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 
 const sound = fileURLToPath(new URL("../sounds/ready.wav", import.meta.url));
 const widget = "ready-window";
-const readyColor = "#06402b";
+const readyColor = "#ffffff";
 
 type ReadyState = {
   abort: AbortController;
   cancelled: boolean;
-  originalColor?: string;
-  resolveColor?: (color: string | undefined) => void;
+  original?: { foreground: string; background: string; appearance: "light" | "dark" };
 };
+
+function terminalColor(color: { r: number; g: number; b: number }) {
+  return `#${[color.r, color.g, color.b].map((value) => value.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function refreshAppearance(appearance: "light" | "dark") {
+  // Windows Terminal does not report OSC color changes. Let Pi re-query the real colors.
+  queueMicrotask(() => process.stdin.emit("data", `\x1b[?997;${appearance === "light" ? 2 : 1}n`));
+}
 
 function powerShellCommand(script: string, timeout: number) {
   // Restricted permits direct commands, not .ps1 files. Do not change policy.
@@ -105,21 +113,16 @@ export default function (pi: ExtensionAPI) {
     ready = undefined;
     state.cancelled = true;
     state.abort.abort();
-    state.resolveColor?.(undefined);
-    if (state.originalColor) process.stdout.write(`\x1b]11;${state.originalColor}\x07`);
+    if (state.original) {
+      process.stdout.write(`\x1b]10;${state.original.foreground}\x07\x1b]11;${state.original.background}\x07`);
+      refreshAppearance(state.original.appearance);
+    }
     ctx.ui.setWidget(widget, undefined);
   }
 
   pi.on("session_start", (_event, ctx) => {
     if (ctx.mode !== "tui" || process.platform !== "win32" || !process.env.WT_SESSION) return;
     unsubscribe = ctx.ui.onTerminalInput((data) => {
-      const reply = data.match(/^\x1b\]11;([^\x07\x1b]*)(?:\x07|\x1b\\)$/i);
-      if (reply && ready?.resolveColor) {
-        if (/^(?:rgb:[0-9a-f]{1,4}\/[0-9a-f]{1,4}\/[0-9a-f]{1,4}|#[0-9a-f]{6}|#[0-9a-f]{12})$/i.test(reply[1])) {
-          ready.resolveColor(reply[1]);
-        }
-        return { consume: true };
-      }
       if (ready && isUserInput(data)) clearReady(ctx);
       return undefined;
     });
@@ -144,23 +147,25 @@ export default function (pi: ExtensionAPI) {
       const state: ReadyState = { abort: new AbortController(), cancelled: false };
       ready = state;
       const marker = randomBytes(8).toString("hex");
-      ctx.ui.setWidget(widget, [`Pi ready ${marker}`]);
-
-      const colorTask = new Promise<string | undefined>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          state.resolveColor = undefined;
-          reject(new Error("Could not query the terminal background color"));
-        }, 1000);
-        state.resolveColor = (color) => {
-          clearTimeout(timer);
-          state.resolveColor = undefined;
-          resolve(color);
-        };
-        process.stdout.write("\x1b]11;?\x07");
-      }).then((color) => {
-        if (!color || state.cancelled) return;
-        state.originalColor = color;
-        process.stdout.write(`\x1b]11;${readyColor}\x07`);
+      const colorTask = new Promise<void>((resolve, reject) => {
+        state.abort.signal.addEventListener("abort", () => resolve(), { once: true });
+        ctx.ui.setWidget(widget, (tui) => {
+          void tui.queryTerminalColors({ timeoutMs: 1000 }).then(({ foreground, background }) => {
+            if (state.cancelled) return;
+            if (!foreground || !background) throw new Error("Could not query the terminal foreground and background colors");
+            if (ctx.ui.theme.appearance === "dark" && ctx.ui.theme.name !== "system") {
+              throw new Error("White completion background requires Pi's system or a light theme");
+            }
+            state.original = {
+              foreground: terminalColor(foreground),
+              background: terminalColor(background),
+              appearance: ctx.ui.theme.appearance,
+            };
+            process.stdout.write(`\x1b]10;#000000\x07\x1b]11;${readyColor}\x07`);
+            refreshAppearance("light");
+          }).then(resolve, reject);
+          return { render: (width) => [`Pi ready ${marker}`.slice(0, width)], invalidate: () => {} };
+        });
       });
       tasks.push(colorTask);
 
