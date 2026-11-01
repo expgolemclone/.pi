@@ -450,6 +450,7 @@ test('real Pi restores the correct Windows Terminal even from an inactive tab', 
             });
           }
           if (consume(paths.input)) {
+            ctx.ui.setEditorText('fixture-');
             process.stdin.emit('data', Buffer.from('x'));
             setTimeout(() => writeFileSync(paths.key, ctx.ui.getEditorText()), 50);
           }

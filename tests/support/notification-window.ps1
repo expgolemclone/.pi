@@ -83,8 +83,12 @@ try {
     }
     Remove-Item -LiteralPath $colorPath -Force
     [IO.File]::WriteAllText($inputPath, 'input')
-    Wait-Until { Test-Path -LiteralPath $keyPath } 10 'The Pi fixture did not receive the input.'
-    if ([IO.File]::ReadAllText($keyPath) -ne 'x') { throw 'The completion indicator consumed the input.' }
+    try {
+        Wait-Until { (Test-Path -LiteralPath $keyPath) -and [IO.File]::ReadAllText($keyPath) -eq 'fixture-x' } 10 'The Pi fixture did not receive the input.'
+    } catch {
+        $key = if (Test-Path -LiteralPath $keyPath) { [IO.File]::ReadAllText($keyPath) } else { '<missing>' }
+        throw "$_ Editor text: '$key'."
+    }
     [IO.File]::WriteAllText($queryPath, 'query')
     Wait-Until { Test-Path -LiteralPath $colorPath } 10 'The Pi fixture did not report its restored background.'
     $color = [IO.File]::ReadAllText($colorPath) | ConvertFrom-Json
