@@ -1,5 +1,4 @@
 import { Buffer } from "node:buffer";
-import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
@@ -47,61 +46,6 @@ try {
 `, 10000);
 }
 
-export function windowCommand(marker: string, waitForMinimize = false) {
-  if (!/^[0-9a-f]{16}$/.test(marker)) throw new Error("Invalid window marker");
-  return powerShellCommand(`
-Set-StrictMode -Version Latest
-$ErrorActionPreference = 'Stop'
-$env:TEMP = 'C:\\dev\\tmp'
-$env:TMP = $env:TEMP
-Add-Type -AssemblyName UIAutomationClient
-Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class PiWindow { [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h); [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int command); }'
-$marker = '${marker}'
-$root = [System.Windows.Automation.AutomationElement]::RootElement
-$condition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ClassNameProperty, 'TermControl')
-$deadline = [DateTime]::UtcNow.AddSeconds(4)
-$lastError = ''
-do {
-    $handles = [Collections.Generic.HashSet[int]]::new()
-    foreach ($window in $root.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)) {
-        try {
-            if ($window.Current.ClassName -ne 'CASCADIA_HOSTING_WINDOW_CLASS') { continue }
-            foreach ($control in $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)) {
-                $pattern = $control.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
-                foreach ($range in $pattern.GetVisibleRanges()) {
-                    if ($range.GetText(-1).Contains($marker)) {
-                        [void]$handles.Add($window.Current.NativeWindowHandle)
-                        break
-                    }
-                }
-            }
-        } catch {
-            # Windows may disappear or become inaccessible while enumerating.
-            $lastError = $_.Exception.Message
-        }
-    }
-    if ($handles.Count -gt 1) { throw 'Pi window marker is ambiguous.' }
-    if ($handles.Count -eq 1) {
-        foreach ($value in $handles) { $handle = [IntPtr]::new($value) }
-        ${waitForMinimize ? `
-        # Terminal processes the minimize sequence asynchronously. Wait for it before restoring.
-        $minimizeDeadline = [DateTime]::UtcNow.AddSeconds(2)
-        while (-not [PiWindow]::IsIconic($handle) -and [DateTime]::UtcNow -lt $minimizeDeadline) {
-            Start-Sleep -Milliseconds 50
-        }` : ""}
-        if ([PiWindow]::IsIconic($handle)) {
-            # Restore without activating or changing an already-visible window.
-            [void][PiWindow]::ShowWindow($handle, 4)
-            if ([PiWindow]::IsIconic($handle)) { throw 'Could not restore the minimized Pi window.' }
-        }
-        return
-    }
-    Start-Sleep -Milliseconds 100
-} while ([DateTime]::UtcNow -lt $deadline)
-throw "Could not identify the Pi window. $lastError"
-`, 8000);
-}
-
 function isUserInput(data: string) {
   // Terminal replies and focus reports are not acknowledgements.
   return data.length > 0 &&
@@ -111,20 +55,14 @@ function isUserInput(data: string) {
 
 export default function (pi: ExtensionAPI) {
   let ready: ReadyState | undefined;
-  let minimizePending = false;
   let unsubscribe: (() => void) | undefined;
 
-  function clearReady(ctx: ExtensionContext, cancelMinimize = false) {
+  function clearReady(ctx: ExtensionContext) {
     if (!ready) return;
     const state = ready;
     ready = undefined;
     state.cancelled = true;
     state.abort.abort();
-    if (cancelMinimize && minimizePending) {
-      // Cancel a minimize still queued by Windows Terminal when the user resumes typing.
-      process.stdout.write("\x1b[1t");
-      minimizePending = false;
-    }
     if (state.original) {
       process.stdout.write(`\x1b]10;${state.original.foreground}\x07\x1b]11;${state.original.background}\x07`);
       refreshAppearance(state.original.appearance);
@@ -135,15 +73,14 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", (_event, ctx) => {
     if (ctx.mode !== "tui" || process.platform !== "win32" || !process.env.WT_SESSION) return;
     unsubscribe = ctx.ui.onTerminalInput((data) => {
-      if (ready && isUserInput(data)) clearReady(ctx, true);
+      if (ready && isUserInput(data)) clearReady(ctx);
       return undefined;
     });
   });
 
   pi.on("input", (event, ctx) => {
     if (ctx.mode === "tui" && process.platform === "win32" && process.env.WT_SESSION && event.source === "interactive") {
-      clearReady(ctx, true);
-      minimizePending = true;
+      clearReady(ctx);
       process.stdout.write("\x1b[2t");
     }
   });
@@ -164,9 +101,10 @@ export default function (pi: ExtensionAPI) {
 
     if (process.env.WT_SESSION) {
       clearReady(ctx);
+      // Windows Terminal handles restore on the same stream as minimize.
+      process.stdout.write("\x1b[1t");
       const state: ReadyState = { abort: new AbortController(), cancelled: false };
       ready = state;
-      const marker = randomBytes(8).toString("hex");
       const colorTask = new Promise<void>((resolve, reject) => {
         state.abort.signal.addEventListener("abort", () => resolve(), { once: true });
         ctx.ui.setWidget(widget, (tui) => {
@@ -184,26 +122,12 @@ export default function (pi: ExtensionAPI) {
             process.stdout.write(`\x1b]10;#000000\x07\x1b]11;${readyColor}\x07`);
             refreshAppearance("light");
           }).then(resolve, reject);
-          return { render: (width) => [`Pi ready ${marker}`.slice(0, width)], invalidate: () => {} };
+          return { render: () => [], invalidate: () => {} };
         });
       });
-      tasks.push(colorTask);
-
-      const window = windowCommand(marker, minimizePending);
-      const windowTask = Promise.resolve().then(async () => {
-        try {
-          const result = await pi.exec(window.command, window.args, { ...window.options, signal: state.abort.signal });
-          if (!state.cancelled && (result.code !== 0 || result.killed)) {
-            throw new Error(`Pi window restore failed (${result.code}, killed=${result.killed}): ${result.stderr}`);
-          }
-          if (ready === state) minimizePending = false;
-        } catch (error) {
-          if (!state.cancelled) throw error;
-        } finally {
-          if (ready === state) ctx.ui.setWidget(widget, undefined);
-        }
-      });
-      tasks.push(windowTask);
+      tasks.push(colorTask.finally(() => {
+        if (ready === state) ctx.ui.setWidget(widget, undefined);
+      }));
     }
 
     const results = await Promise.allSettled(tasks);
@@ -212,7 +136,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("session_shutdown", (_event, ctx) => {
-    clearReady(ctx, true);
+    clearReady(ctx);
     unsubscribe?.();
     unsubscribe = undefined;
   });

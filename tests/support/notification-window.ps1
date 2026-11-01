@@ -12,13 +12,15 @@ $env:TEMP = $homePath
 $env:TMP = $homePath
 $root = [System.Windows.Automation.AutomationElement]::RootElement
 $condition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, $windowTitle)
+$windowName = $windowTitle + '-window'
+$backgroundTitle = $windowTitle + '-background'
+$backgroundCondition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, $backgroundTitle)
 $focusTitle = $windowTitle + '-focus'
 $focusCondition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, $focusTitle)
 $wt = (Get-Command wt.exe -CommandType Application).Source
 $piWindow = $null
 $decoyWindow = $null
 $focusWindow = $null
-$restorer = $null
 function Wait-Until([scriptblock]$predicate, [int]$seconds, [string]$message) {
     $deadline = [DateTime]::UtcNow.AddSeconds($seconds)
     do {
@@ -30,7 +32,7 @@ function Wait-Until([scriptblock]$predicate, [int]$seconds, [string]$message) {
     throw "$message Pi running: $($null -ne $fixtureProcess). Inputs: $events"
 }
 try {
-    Start-Process -FilePath $wt -ArgumentList '-w', 'new', 'new-tab', '--title', $windowTitle, '--suppressApplicationTitle', $nodePath, $cliPath, '--extension', (Join-Path $agentDir 'extensions/notify.ts'), '--no-mcp', '--no-tools', '--no-skills', '--no-prompt-templates', '--no-session'
+    Start-Process -FilePath $wt -ArgumentList '-w', $windowName, 'new-tab', '--title', $windowTitle, '--suppressApplicationTitle', $nodePath, $cliPath, '--extension', (Join-Path $agentDir 'extensions/notify.ts'), '--no-mcp', '--no-tools', '--no-skills', '--no-prompt-templates', '--no-session'
     Wait-Until { (Test-Path -LiteralPath $readyPath) -and $root.FindAll([System.Windows.Automation.TreeScope]::Children, $condition).Count -eq 1 } 25 'Pi fixture did not start.'
     $piWindow = $root.FindAll([System.Windows.Automation.TreeScope]::Children, $condition)[0]
     $piHandle = [IntPtr]::new($piWindow.Current.NativeWindowHandle)
@@ -43,6 +45,10 @@ try {
     }
     if ($null -eq $decoyWindow) { throw 'Could not identify decoy fixture window.' }
     $decoyHandle = [IntPtr]::new($decoyWindow.Current.NativeWindowHandle)
+    Start-Process -FilePath $wt -ArgumentList '-w', $windowName, 'new-tab', '--title', $backgroundTitle, '--suppressApplicationTitle', $pwshPath, '-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', $encoded
+    Wait-Until { $root.FindAll([System.Windows.Automation.TreeScope]::Children, $backgroundCondition).Count -eq 1 } 20 'Background tab did not start.'
+    $backgroundWindow = $root.FindAll([System.Windows.Automation.TreeScope]::Children, $backgroundCondition)[0]
+    if ($backgroundWindow.Current.NativeWindowHandle -ne $piHandle.ToInt32()) { throw 'Background tab opened in another window.' }
     Start-Sleep -Milliseconds 750
     [void][PiNotificationTest]::ShowWindow($decoyHandle, 6)
     [void][PiNotificationTest]::ShowWindow($piHandle, 6)
@@ -54,10 +60,15 @@ try {
     [void][PiNotificationTest]::SetForegroundWindow($foreground)
     Wait-Until { [PiNotificationTest]::GetForegroundWindow() -eq $foreground } 5 'Could not focus the foreground fixture.'
     [IO.File]::WriteAllText($goPath, 'go')
-    Wait-Until { (Test-Path -LiteralPath $donePath) -and -not [PiNotificationTest]::IsIconic($piHandle) } 25 'Pi fixture did not settle and restore its window.'
+    try {
+        Wait-Until { (Test-Path -LiteralPath $donePath) -and -not [PiNotificationTest]::IsIconic($piHandle) } 25 'Pi fixture did not settle and restore its window.'
+    } catch {
+        throw "$_ Done: $(Test-Path -LiteralPath $donePath). Minimized: $([PiNotificationTest]::IsIconic($piHandle))."
+    }
     if (-not [PiNotificationTest]::IsIconic($decoyHandle)) { throw 'A different window with the same title was restored.' }
-    $after = [PiNotificationTest]::GetForegroundWindow()
-    if ($after -eq $piHandle) { throw 'Restoring the Pi fixture activated its window.' }
+    if ($root.FindAll([System.Windows.Automation.TreeScope]::Children, $backgroundCondition).Count -ne 1) { throw 'Restoration changed the active tab.' }
+    Start-Process -FilePath $wt -ArgumentList '-w', $windowName, 'focus-tab', '-t', '0'
+    Wait-Until { $root.FindAll([System.Windows.Automation.TreeScope]::Children, $condition).Count -eq 2 } 10 'Could not return to the Pi tab.'
     [IO.File]::WriteAllText($queryPath, 'query')
     Wait-Until { Test-Path -LiteralPath $colorPath } 10 'The Pi fixture did not report its terminal background.'
     $color = [IO.File]::ReadAllText($colorPath) | ConvertFrom-Json
@@ -86,6 +97,8 @@ try {
         throw "Pi did not restore readable dark colors: $([IO.File]::ReadAllText($themePath))"
     }
     Remove-Item -LiteralPath $donePath, $colorPath -Force
+    [void][PiNotificationTest]::SetForegroundWindow($foreground)
+    Wait-Until { [PiNotificationTest]::GetForegroundWindow() -eq $foreground } 5 'Could not refocus the foreground fixture.'
     [IO.File]::WriteAllText($goPath, 'go again')
     Wait-Until { Test-Path -LiteralPath $donePath } 15 'Pi fixture did not settle the second run.'
     Start-Sleep -Milliseconds 1500
@@ -124,7 +137,6 @@ try {
     [IO.File]::WriteAllText($releasePath, 'release')
     Wait-Until { (Test-Path -LiteralPath $donePath) -and -not [PiNotificationTest]::IsIconic($piHandle) } 25 'The interactive run did not restore its window.'
     if (-not [PiNotificationTest]::IsIconic($decoyHandle)) { throw 'An unrelated window changed state after settlement.' }
-    if ([PiNotificationTest]::GetForegroundWindow() -eq $piHandle) { throw 'The interactive run stole focus on settlement.' }
 
     Remove-Item -LiteralPath $donePath -Force
     [IO.File]::WriteAllText($quickPath, 'quick')
@@ -132,39 +144,15 @@ try {
         [IO.File]::ReadAllText($donePath) -eq 'quick fixture request' -and -not [PiNotificationTest]::IsIconic($piHandle) } 25 'The quick run did not finish with its window restored.'
     Start-Sleep -Milliseconds 1000
     if ([PiNotificationTest]::IsIconic($piHandle)) {
-        $controlCondition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ClassNameProperty, 'TermControl')
-        $screen = foreach ($control in $piWindow.FindAll([System.Windows.Automation.TreeScope]::Descendants, $controlCondition)) {
-            foreach ($range in $control.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern).GetVisibleRanges()) { $range.GetText(-1) }
-        }
-        throw "A delayed minimize hid the completed quick run. Inputs: $([IO.File]::ReadAllText($eventsPath)). Screen: $screen"
+        throw "A delayed minimize hid the completed quick run. Inputs: $([IO.File]::ReadAllText($eventsPath))"
     }
-    if ([PiNotificationTest]::GetForegroundWindow() -eq $piHandle) { throw 'The quick run stole focus.' }
 
-    [IO.File]::WriteAllText($markPath, 'mark')
-    Wait-Until { Test-Path -LiteralPath $markedPath } 15 'The delayed-minimize marker was not rendered.'
-    $waitScript = [IO.File]::ReadAllText($waitScriptPath)
-    foreach ($delayed in $true, $false) {
-        if (Test-Path -LiteralPath $markerFoundPath) { Remove-Item -LiteralPath $markerFoundPath -Force }
-        $restorer = Start-Process -FilePath $pwshPath -ArgumentList '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Restricted', '-EncodedCommand', $waitScript -WindowStyle Hidden -PassThru
-        Wait-Until { Test-Path -LiteralPath $markerFoundPath } 10 'The restorer did not find its window.'
-        if ($restorer.HasExited) { throw 'The restorer did not wait for the pending minimize.' }
-        if ($delayed) {
-            Start-Sleep -Milliseconds 250
-            [void][PiNotificationTest]::ShowWindow($piHandle, 6)
-        }
-        Wait-Until { $restorer.Refresh(); $restorer.HasExited } 8 'The restorer did not finish waiting for the minimize.'
-        if ($restorer.ExitCode -ne 0) { throw "The delayed-minimize restorer failed: $($restorer.ExitCode)." }
-        if ([PiNotificationTest]::IsIconic($piHandle)) { throw 'The delayed minimize was not restored.' }
-        if (-not [PiNotificationTest]::IsIconic($decoyHandle)) { throw 'The delayed restore affected another window.' }
-        if ([PiNotificationTest]::GetForegroundWindow() -eq $piHandle) { throw 'The delayed restore stole focus.' }
-    }
-    Write-Output 'Real Pi minimized interactive prompts, preserved other windows, and restored without activation.'
+    Write-Output 'Real Pi minimized interactive prompts, preserved other windows, and restored on completion.'
 } finally {
-    if ($null -ne $restorer -and -not $restorer.HasExited) { $restorer.Kill() }
     [IO.File]::WriteAllText($quitPath, 'quit')
     Start-Sleep -Milliseconds 750
-    foreach ($windowCondition in $condition, $focusCondition) {
-        foreach ($window in $root.FindAll([System.Windows.Automation.TreeScope]::Children, $windowCondition)) {
+    foreach ($window in $piWindow, $decoyWindow, $focusWindow) {
+        if ($null -ne $window) {
             try { $window.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).Close() } catch {}
         }
     }

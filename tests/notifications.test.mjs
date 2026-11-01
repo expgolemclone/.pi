@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { execFile, execFileSync, spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, cpSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import test, { after } from 'node:test';
-import notifier, { soundCommand, windowCommand } from '../agent/extensions/notify.ts';
+import notifier, { soundCommand } from '../agent/extensions/notify.ts';
 import { aiRoot, packageRoot, sdk } from './support/pi-runtime.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -42,6 +42,7 @@ function harness(t, exec = t.mock.fn(async () => success), extension = notifier)
   const writes = [];
   const minimizes = [];
   const restores = [];
+  const windowWrites = [];
   const widgets = [];
   const appearances = [];
   let listener;
@@ -49,8 +50,8 @@ function harness(t, exec = t.mock.fn(async () => success), extension = notifier)
   let removed = false;
   const write = process.stdout.write.bind(process.stdout);
   t.mock.method(process.stdout, 'write', (value, ...args) => {
-    if (String(value) === '\x1b[2t') { minimizes.push(String(value)); return true; }
-    if (String(value) === '\x1b[1t') { restores.push(String(value)); return true; }
+    if (String(value) === '\x1b[2t') { minimizes.push(String(value)); windowWrites.push(String(value)); return true; }
+    if (String(value) === '\x1b[1t') { restores.push(String(value)); windowWrites.push(String(value)); return true; }
     if (/^\x1b\]1[01];/.test(String(value))) { writes.push(String(value)); return true; }
     return write(value, ...args);
   });
@@ -72,7 +73,7 @@ function harness(t, exec = t.mock.fn(async () => success), extension = notifier)
   } };
   extension({ on: (name, handler) => handlers.set(name, handler), exec });
   assert.deepEqual([...handlers.keys()], ['session_start', 'input', 'agent_start', 'agent_settled', 'session_shutdown']);
-  return { handlers, ctx, exec, writes, minimizes, restores, widgets, appearances, replyColors: colors => resolveColors(colors),
+  return { handlers, ctx, exec, writes, minimizes, restores, windowWrites, widgets, appearances, replyColors: colors => resolveColors(colors),
     input: value => listener?.(value), removed: () => removed };
 }
 
@@ -118,6 +119,7 @@ test('settlement is interactive-only and does not start work while loading', asy
   }
   assert.equal(h.exec.mock.callCount(), 0);
   assert.deepEqual(h.writes, []);
+  assert.deepEqual(h.windowWrites, []);
   assert.deepEqual(h.widgets, []);
 });
 
@@ -155,67 +157,32 @@ test('without Windows Terminal a prompt does not minimize a window', async t => 
   assert.deepEqual(h.minimizes, []);
 });
 
-test('settlement waits for a pending terminal minimize before restoring', async t => {
+test('settlement restores immediately on the same stream after minimize', async t => {
   terminalEnvironment(t);
   const h = harness(t);
   start(h);
-  await h.handlers.get('input')({ source: 'interactive', text: 'prompt' }, h.ctx);
-  const pending = settle(h);
-  h.replyColors(originalColors);
-  await pending;
-  const scripts = h.exec.mock.calls.map(call => decode(call.arguments[1]));
-  assert.ok(scripts.some(script => /\$minimizeDeadline/.test(script)));
-  h.input('x');
-  assert.deepEqual(h.restores, []);
-  const next = settle(h);
-  h.replyColors(originalColors);
-  await next;
-  const nextScript = decode(h.exec.mock.calls.at(-1).arguments[1]);
-  assert.doesNotMatch(nextScript, /\$minimizeDeadline/);
-  shutdown(h);
-});
-
-test('typing during settlement cancels a queued minimize before a new submission', async t => {
-  terminalEnvironment(t);
-  const exec = t.mock.fn((_command, _args, options) => {
-    if (!options.signal) return Promise.resolve(success);
-    return new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }));
-  });
-  const h = harness(t, exec);
-  start(h);
   await h.handlers.get('input')({ source: 'interactive', text: 'first' }, h.ctx);
-  const pending = settle(h);
-  await new Promise(resolve => setImmediate(resolve));
-  h.input('x');
-  await pending;
-  assert.deepEqual(h.restores, ['\x1b[1t']);
-  await h.handlers.get('input')({ source: 'interactive', text: 'second', streamingBehavior: 'steer' }, h.ctx);
-  assert.deepEqual(h.minimizes, ['\x1b[2t', '\x1b[2t']);
-  shutdown(h);
-});
-
-test('a programmatic new run keeps a pending minimize until its settlement', async t => {
-  terminalEnvironment(t);
-  let windowCalls = 0;
-  const exec = t.mock.fn((_command, _args, options) => {
-    if (!options.signal) return Promise.resolve(success);
-    if (++windowCalls > 1) return Promise.resolve(success);
-    return new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }));
-  });
-  const h = harness(t, exec);
-  start(h);
-  await h.handlers.get('input')({ source: 'interactive', text: 'prompt' }, h.ctx);
   const first = settle(h);
-  await new Promise(resolve => setImmediate(resolve));
-  h.handlers.get('agent_start')({}, h.ctx);
+  assert.deepEqual(h.windowWrites, ['\x1b[2t', '\x1b[1t']);
+  h.input('x');
   await first;
+  await h.handlers.get('input')({ source: 'interactive', text: 'second', streamingBehavior: 'steer' }, h.ctx);
   const second = settle(h);
   h.replyColors(originalColors);
   await second;
-  const scripts = h.exec.mock.calls.filter(call => call.arguments[2].signal).map(call => decode(call.arguments[1]));
-  assert.equal(scripts.length, 2);
-  assert.ok(scripts.every(script => /\$minimizeDeadline/.test(script)));
-  assert.deepEqual(h.restores, []);
+  assert.deepEqual(h.windowWrites, ['\x1b[2t', '\x1b[1t', '\x1b[2t', '\x1b[1t']);
+  assert.equal(h.exec.mock.callCount(), 2);
+  shutdown(h);
+});
+
+test('programmatic runs restore the terminal even without an interactive submission', async t => {
+  terminalEnvironment(t);
+  const h = harness(t);
+  start(h);
+  const pending = settle(h);
+  h.replyColors(originalColors);
+  await pending;
+  assert.deepEqual(h.windowWrites, ['\x1b[1t']);
   shutdown(h);
 });
 
@@ -231,6 +198,7 @@ test('without Windows Terminal only the sound is played', async t => {
   assert.ok(decode(args).includes(`$SoundPath = '${soundPath}'`));
   assert.deepEqual(options, { timeout: 10000 });
   assert.deepEqual(h.writes, []);
+  assert.deepEqual(h.windowWrites, []);
   assert.deepEqual(h.widgets, []);
 });
 
@@ -239,13 +207,11 @@ test('settlement switches to readable white and restores both colors on input', 
   const h = harness(t);
   start(h);
   const pending = settle(h);
-  const marker = h.widgets[0][1][0].match(/^Pi ready ([0-9a-f]{16})$/)[1];
   h.replyColors(originalColors);
   await pending;
-  assert.equal(h.exec.mock.callCount(), 2);
-  const calls = h.exec.mock.calls.map(call => decode(call.arguments[1]));
-  assert.ok(calls.some(script => script.includes('$player.PlaySync()')));
-  assert.ok(calls.some(script => script.includes(`$marker = '${marker}'`)));
+  assert.equal(h.exec.mock.callCount(), 1);
+  assert.ok(decode(h.exec.mock.calls[0].arguments[1]).includes('$player.PlaySync()'));
+  assert.deepEqual(h.restores, ['\x1b[1t']);
   assert.ok(h.writes.includes(readyWrite));
   assert.deepEqual(h.appearances, ['\x1b[?997;2n']);
   assert.deepEqual(h.widgets.at(-1), ['ready-window', undefined]);
@@ -277,24 +243,18 @@ test('shutdown and a programmatic new run restore the background exactly once', 
 
 test('input during settlement cancels pending visual work without consuming the key or cancelling sound', async t => {
   terminalEnvironment(t);
-  let windowAborted = false;
-  const exec = t.mock.fn((_command, _args, options) => {
-    if (!options.signal) return Promise.resolve(success);
-    return new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => {
-      windowAborted = true;
-      reject(new Error('aborted'));
-    }, { once: true }));
-  });
+  let finishSound;
+  const exec = t.mock.fn(() => new Promise(resolve => { finishSound = resolve; }));
   const h = harness(t, exec);
   start(h);
   const pending = settle(h);
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(h.input('x'), undefined);
-  await pending;
   h.replyColors(originalColors);
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(windowAborted, true);
-  assert.equal(exec.mock.callCount(), 2);
+  finishSound(success);
+  await pending;
+  assert.equal(exec.mock.callCount(), 1);
+  assert.deepEqual(h.restores, ['\x1b[1t']);
   assert.ok(!h.writes.includes(readyWrite));
   shutdown(h);
 });
@@ -315,29 +275,28 @@ test('immediate input after the white change restores colors in order', async t 
   shutdown(h);
 });
 
-test('sound and window errors remain visible without suppressing either action', async t => {
+test('sound and color errors remain visible without suppressing restoration', async t => {
   terminalEnvironment(t);
-  const exec = t.mock.fn(async (_command, _args, options) => options.signal
-    ? { ...success, code: 1, stderr: 'window failure' }
-    : { ...success, code: 1, stderr: 'sound failure' });
+  const exec = t.mock.fn(async () => ({ ...success, code: 1, stderr: 'sound failure' }));
   const h = harness(t, exec);
   start(h);
   const pending = settle(h);
-  h.replyColors(originalColors);
-  await assert.rejects(pending, error => /sound failure/.test(error.message) && /window failure/.test(error.message));
-  assert.equal(exec.mock.callCount(), 2);
-  assert.ok(h.writes.includes(readyWrite));
+  h.replyColors({});
+  await assert.rejects(pending, error => /sound failure/.test(error.message) && /Could not query/.test(error.message));
+  assert.equal(exec.mock.callCount(), 1);
+  assert.deepEqual(h.restores, ['\x1b[1t']);
   shutdown(h);
 });
 
-test('a missing color reply is reported without suppressing sound or window lookup', async t => {
+test('a missing color reply is reported without suppressing sound or window restoration', async t => {
   terminalEnvironment(t);
   const h = harness(t);
   start(h);
   const pending = settle(h);
   h.replyColors({});
   await assert.rejects(pending, /Could not query the terminal foreground and background colors/);
-  assert.equal(h.exec.mock.callCount(), 2);
+  assert.equal(h.exec.mock.callCount(), 1);
+  assert.deepEqual(h.restores, ['\x1b[1t']);
   assert.ok(!h.writes.includes(readyWrite));
   shutdown(h);
 });
@@ -365,35 +324,26 @@ test('a dark fixed theme is not made unreadable', async t => {
   const pending = settle(h);
   h.replyColors(originalColors);
   await assert.rejects(pending, /requires Pi's system or a light theme/);
-  assert.equal(h.exec.mock.callCount(), 2);
+  assert.equal(h.exec.mock.callCount(), 1);
+  assert.deepEqual(h.restores, ['\x1b[1t']);
   assert.deepEqual(h.writes, []);
   shutdown(h);
 });
 
-test('PowerShell commands use encoded input and sound loads the WAV once', () => {
-  for (const cmd of [soundCommand(), windowCommand('0123456789abcdef')]) {
-    assert.equal(cmd.command, 'mise.exe');
-    assert.deepEqual(cmd.args.slice(0, 6), ['exec', '--', 'pwsh', '-NoProfile', '-NonInteractive', '-EncodedCommand']);
-    assert.doesNotMatch(decode(cmd.args), /Set-ExecutionPolicy|Bypass/i);
-    assert.ok(!cmd.args.includes('-ExecutionPolicy'));
-    assert.ok(!cmd.args.includes('-File'));
-  }
-  const script = decode(soundCommand().args);
+test('PowerShell sound command uses encoded input and loads the WAV once', () => {
+  const cmd = soundCommand();
+  assert.equal(cmd.command, 'mise.exe');
+  assert.deepEqual(cmd.args.slice(0, 6), ['exec', '--', 'pwsh', '-NoProfile', '-NonInteractive', '-EncodedCommand']);
+  assert.doesNotMatch(decode(cmd.args), /Set-ExecutionPolicy|Bypass/i);
+  assert.ok(!cmd.args.includes('-ExecutionPolicy'));
+  assert.ok(!cmd.args.includes('-File'));
+  const script = decode(cmd.args);
   assert.doesNotMatch(script, /WindowsRuntime|SystemSounds/);
   assert.ok(script.indexOf('$player.Load()') < script.indexOf('$player.PlaySync()'));
   assert.equal(script.match(/\.PlaySync\(/g).length, 1);
   assert.match(script, /finally\s*\{\s*\$player\.Dispose\(\)/);
   const path = "C:\\音\\O'Brien\\ready.wav";
   assert.ok(decode(soundCommand(path).args).includes(`$SoundPath = '${path.replaceAll("'", "''")}'`));
-  assert.throws(() => windowCommand("'; exit"), /Invalid window marker/);
-  assert.match(decode(windowCommand('0123456789abcdef', true).args), /\$minimizeDeadline/);
-  assert.doesNotMatch(decode(windowCommand('0123456789abcdef').args), /\$minimizeDeadline/);
-});
-
-test('an unmatched marker fails instead of restoring another window', { timeout: 20000 }, async () => {
-  const { command, args, options } = windowCommand(randomBytes(8).toString('hex'));
-  await assert.rejects(promisify(execFile)(command, args, { ...options, encoding: 'utf8' }),
-    error => /Could not identify the Pi window/.test(error.stderr));
 });
 
 test('real audio plays under Restricted without a .ps1 or policy relaxation', async t => {
@@ -412,7 +362,7 @@ test('real audio plays under Restricted without a .ps1 or policy relaxation', as
   assert.equal(stdout, '');
 });
 
-test('real Pi in Windows Terminal minimizes interactive prompts and restores without focus theft', { timeout: 120000 }, async t => {
+test('real Pi restores the correct Windows Terminal even from an inactive tab', { timeout: 120000 }, async t => {
   const directory = mkdtempSync('C:/dev/tmp/pi-notify-terminal-test-');
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const agentDir = join(directory, '.pi/agent');
@@ -430,9 +380,7 @@ test('real Pi in Windows Terminal minimizes interactive prompts and restores wit
   } }));
   writeFileSync(join(agentDir, 'AGENTS.md'), '# Fixture instructions\n');
   const paths = Object.fromEntries(['ready', 'go', 'done', 'query', 'color', 'theme', 'input', 'key', 'command',
-    'commandDone', 'submit', 'running', 'stream', 'followUp', 'release', 'quick', 'events', 'mark', 'marked',
-    'markerFound', 'waitScript', 'quit'].map(name => [name, join(directory, name)]));
-  const marker = randomBytes(8).toString('hex');
+    'commandDone', 'submit', 'running', 'stream', 'followUp', 'release', 'quick', 'events', 'quit'].map(name => [name, join(directory, name)]));
   const moduleUrl = path => JSON.stringify(pathToFileURL(path).href);
   const fixture = String.raw`
     import { existsSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -495,10 +443,6 @@ test('real Pi in Windows Terminal minimizes interactive prompts and restores wit
             ctx.ui.setEditorText('quick fixture request');
             process.stdin.emit('data', Buffer.from('\r'));
           }
-          if (consume(paths.mark)) {
-            ctx.ui.setWidget('fixture-marker', [${JSON.stringify(marker)}]);
-            writeFileSync(paths.marked, 'marked');
-          }
           if (consume(paths.query)) {
             void tui.queryTerminalColors({ timeoutMs: 1000 }).then(colors => {
               writeFileSync(paths.theme, JSON.stringify({ appearance: ctx.ui.theme.appearance, text: ctx.ui.theme.colors.text, userMessageBg: ctx.ui.theme.colors.userMessageBg }));
@@ -538,14 +482,8 @@ test('real Pi in Windows Terminal minimizes interactive prompts and restores wit
     colorPath: paths.color, themePath: paths.theme, inputPath: paths.input, keyPath: paths.key,
     commandPath: paths.command, commandDonePath: paths.commandDone, submitPath: paths.submit,
     runningPath: paths.running, streamPath: paths.stream, followUpPath: paths.followUp,
-    releasePath: paths.release, quickPath: paths.quick, eventsPath: paths.events, markPath: paths.mark, markedPath: paths.marked,
-    markerFoundPath: paths.markerFound, waitScriptPath: paths.waitScript, quitPath: paths.quit };
+    releasePath: paths.release, quickPath: paths.quick, eventsPath: paths.events, quitPath: paths.quit };
   const literal = value => "'" + value.replaceAll("'", "''") + "'";
-  const match = 'foreach ($value in $handles) { $handle = [IntPtr]::new($value) }';
-  const script = decode(windowCommand(marker, true).args);
-  assert.ok(script.includes(match));
-  writeFileSync(paths.waitScript, Buffer.from(script.replace(match,
-    `${match}\n[IO.File]::WriteAllText(${literal(paths.markerFound)}, 'found')`), 'utf16le').toString('base64'));
   const prefix = Object.entries(assignments).map(([name, value]) => `$${name} = ${literal(value)};`).join('\n');
   const driver = prefix + `\n& ([scriptblock]::Create([IO.File]::ReadAllText(${literal(join(root, 'tests/support/notification-window.ps1'))})))`;
   const encoded = Buffer.from(driver, 'utf16le').toString('base64');
@@ -556,7 +494,7 @@ test('real Pi in Windows Terminal minimizes interactive prompts and restores wit
   } catch (error) {
     assert.fail(`driver failed in ${directory}: code=${error.code} killed=${error.killed} signal=${error.signal}\nstdout=${error.stdout}\nstderr=${error.stderr}`);
   }
-  assert.match(result.stdout, /minimized interactive prompts, preserved other windows, and restored without activation/);
+  assert.match(result.stdout, /minimized interactive prompts, preserved other windows, and restored on completion/);
   assert.deepEqual(JSON.parse(readFileSync(paths.events, 'utf8')), [
     { source: 'extension', text: 'fixture request', streamingBehavior: null },
     { source: 'extension', text: 'fixture request', streamingBehavior: null },
