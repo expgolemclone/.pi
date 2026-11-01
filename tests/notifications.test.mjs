@@ -40,6 +40,8 @@ function terminalEnvironment(t, value = 'fixture-terminal') {
 function harness(t, exec = t.mock.fn(async () => success), extension = notifier) {
   const handlers = new Map();
   const writes = [];
+  const minimizes = [];
+  const restores = [];
   const widgets = [];
   const appearances = [];
   let listener;
@@ -47,6 +49,8 @@ function harness(t, exec = t.mock.fn(async () => success), extension = notifier)
   let removed = false;
   const write = process.stdout.write.bind(process.stdout);
   t.mock.method(process.stdout, 'write', (value, ...args) => {
+    if (String(value) === '\x1b[2t') { minimizes.push(String(value)); return true; }
+    if (String(value) === '\x1b[1t') { restores.push(String(value)); return true; }
     if (/^\x1b\]1[01];/.test(String(value))) { writes.push(String(value)); return true; }
     return write(value, ...args);
   });
@@ -67,8 +71,8 @@ function harness(t, exec = t.mock.fn(async () => success), extension = notifier)
     },
   } };
   extension({ on: (name, handler) => handlers.set(name, handler), exec });
-  assert.deepEqual([...handlers.keys()], ['session_start', 'agent_start', 'agent_settled', 'session_shutdown']);
-  return { handlers, ctx, exec, writes, widgets, appearances, replyColors: colors => resolveColors(colors),
+  assert.deepEqual([...handlers.keys()], ['session_start', 'input', 'agent_start', 'agent_settled', 'session_shutdown']);
+  return { handlers, ctx, exec, writes, minimizes, restores, widgets, appearances, replyColors: colors => resolveColors(colors),
     input: value => listener?.(value), removed: () => removed };
 }
 
@@ -99,7 +103,7 @@ test('Pi discovers each extension once without a model-selection controller or c
   assert.ok(result.extensions.every(extension => !extension.tools.has('kintone_connect')));
   assert.equal(result.runtime.mcpServers.list().length, 1);
   const handlers = Object.fromEntries(result.extensions.map(extension => [extension.path, [...extension.handlers.keys()]]));
-  assert.deepEqual(handlers[join(piRoot, 'agent/extensions/notify.ts')], ['session_start', 'agent_start', 'agent_settled', 'session_shutdown']);
+  assert.deepEqual(handlers[join(piRoot, 'agent/extensions/notify.ts')], ['session_start', 'input', 'agent_start', 'agent_settled', 'session_shutdown']);
   assert.deepEqual(handlers[join(piRoot, 'agent/extensions/custom-compaction/index.ts')], ['session_before_compact']);
 });
 
@@ -115,6 +119,104 @@ test('settlement is interactive-only and does not start work while loading', asy
   assert.equal(h.exec.mock.callCount(), 0);
   assert.deepEqual(h.writes, []);
   assert.deepEqual(h.widgets, []);
+});
+
+test('interactive submissions minimize their Windows Terminal without changing the prompt', async t => {
+  terminalEnvironment(t);
+  const h = harness(t);
+  start(h);
+  for (const streamingBehavior of [undefined, 'steer', 'followUp']) {
+    const event = { source: 'interactive', text: 'fixture prompt', streamingBehavior };
+    assert.equal(await h.handlers.get('input')(event, h.ctx), undefined);
+    assert.equal(event.text, 'fixture prompt');
+  }
+  assert.deepEqual(h.minimizes, ['\x1b[2t', '\x1b[2t', '\x1b[2t']);
+  assert.equal(h.exec.mock.callCount(), 0);
+  shutdown(h);
+});
+
+test('noninteractive and extension inputs do not minimize a window', async t => {
+  terminalEnvironment(t);
+  const h = harness(t);
+  for (const mode of ['print', 'json', 'rpc']) {
+    await h.handlers.get('input')({ source: 'interactive', text: 'prompt' }, { ...h.ctx, mode });
+  }
+  for (const source of ['extension', 'rpc']) {
+    await h.handlers.get('input')({ source, text: 'prompt' }, h.ctx);
+  }
+  assert.deepEqual(h.minimizes, []);
+  assert.equal(h.exec.mock.callCount(), 0);
+});
+
+test('without Windows Terminal a prompt does not minimize a window', async t => {
+  terminalEnvironment(t, null);
+  const h = harness(t);
+  await h.handlers.get('input')({ source: 'interactive', text: 'prompt' }, h.ctx);
+  assert.deepEqual(h.minimizes, []);
+});
+
+test('settlement waits for a pending terminal minimize before restoring', async t => {
+  terminalEnvironment(t);
+  const h = harness(t);
+  start(h);
+  await h.handlers.get('input')({ source: 'interactive', text: 'prompt' }, h.ctx);
+  const pending = settle(h);
+  h.replyColors(originalColors);
+  await pending;
+  const scripts = h.exec.mock.calls.map(call => decode(call.arguments[1]));
+  assert.ok(scripts.some(script => /\$minimizeDeadline/.test(script)));
+  h.input('x');
+  assert.deepEqual(h.restores, []);
+  const next = settle(h);
+  h.replyColors(originalColors);
+  await next;
+  const nextScript = decode(h.exec.mock.calls.at(-1).arguments[1]);
+  assert.doesNotMatch(nextScript, /\$minimizeDeadline/);
+  shutdown(h);
+});
+
+test('typing during settlement cancels a queued minimize before a new submission', async t => {
+  terminalEnvironment(t);
+  const exec = t.mock.fn((_command, _args, options) => {
+    if (!options.signal) return Promise.resolve(success);
+    return new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }));
+  });
+  const h = harness(t, exec);
+  start(h);
+  await h.handlers.get('input')({ source: 'interactive', text: 'first' }, h.ctx);
+  const pending = settle(h);
+  await new Promise(resolve => setImmediate(resolve));
+  h.input('x');
+  await pending;
+  assert.deepEqual(h.restores, ['\x1b[1t']);
+  await h.handlers.get('input')({ source: 'interactive', text: 'second', streamingBehavior: 'steer' }, h.ctx);
+  assert.deepEqual(h.minimizes, ['\x1b[2t', '\x1b[2t']);
+  shutdown(h);
+});
+
+test('a programmatic new run keeps a pending minimize until its settlement', async t => {
+  terminalEnvironment(t);
+  let windowCalls = 0;
+  const exec = t.mock.fn((_command, _args, options) => {
+    if (!options.signal) return Promise.resolve(success);
+    if (++windowCalls > 1) return Promise.resolve(success);
+    return new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }));
+  });
+  const h = harness(t, exec);
+  start(h);
+  await h.handlers.get('input')({ source: 'interactive', text: 'prompt' }, h.ctx);
+  const first = settle(h);
+  await new Promise(resolve => setImmediate(resolve));
+  h.handlers.get('agent_start')({}, h.ctx);
+  await first;
+  const second = settle(h);
+  h.replyColors(originalColors);
+  await second;
+  const scripts = h.exec.mock.calls.filter(call => call.arguments[2].signal).map(call => decode(call.arguments[1]));
+  assert.equal(scripts.length, 2);
+  assert.ok(scripts.every(script => /\$minimizeDeadline/.test(script)));
+  assert.deepEqual(h.restores, []);
+  shutdown(h);
 });
 
 test('without Windows Terminal only the sound is played', async t => {
@@ -284,6 +386,8 @@ test('PowerShell commands use encoded input and sound loads the WAV once', () =>
   const path = "C:\\音\\O'Brien\\ready.wav";
   assert.ok(decode(soundCommand(path).args).includes(`$SoundPath = '${path.replaceAll("'", "''")}'`));
   assert.throws(() => windowCommand("'; exit"), /Invalid window marker/);
+  assert.match(decode(windowCommand('0123456789abcdef', true).args), /\$minimizeDeadline/);
+  assert.doesNotMatch(decode(windowCommand('0123456789abcdef').args), /\$minimizeDeadline/);
 });
 
 test('an unmatched marker fails instead of restoring another window', { timeout: 20000 }, async () => {
@@ -308,7 +412,7 @@ test('real audio plays under Restricted without a .ps1 or policy relaxation', as
   assert.equal(stdout, '');
 });
 
-test('real Pi in Windows Terminal restores only its own minimized window without focus theft', { timeout: 100000 }, async t => {
+test('real Pi in Windows Terminal minimizes interactive prompts and restores without focus theft', { timeout: 120000 }, async t => {
   const directory = mkdtempSync('C:/dev/tmp/pi-notify-terminal-test-');
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const agentDir = join(directory, '.pi/agent');
@@ -317,14 +421,18 @@ test('real Pi in Windows Terminal restores only its own minimized window without
   cpSync(join(root, 'agent/sounds'), join(agentDir, 'sounds'), { recursive: true });
   cpSync(join(root, 'agent/models.json'), join(agentDir, 'models.json'));
   const config = JSON.parse(readFileSync(join(root, 'agent/settings.json'), 'utf8'));
-  const settings = JSON.stringify({ ...config, extensions: [],
+  const fixturePath = join(directory, 'fixture.ts');
+  const settings = JSON.stringify({ ...config, extensions: [fixturePath],
     enableInstallTelemetry: false, cacheWarming: 'off', defaultProjectTrust: 'never' });
   writeFileSync(join(agentDir, 'settings.json'), settings);
   writeFileSync(join(agentDir, 'auth.json'), JSON.stringify({ openai: {
     type: 'oauth', access: 'fixture-oauth-access', refresh: 'fixture-refresh', expires: 9999999999999,
   } }));
   writeFileSync(join(agentDir, 'AGENTS.md'), '# Fixture instructions\n');
-  const paths = Object.fromEntries(['ready', 'go', 'done', 'query', 'color', 'theme', 'input', 'key', 'quit'].map(name => [name, join(directory, name)]));
+  const paths = Object.fromEntries(['ready', 'go', 'done', 'query', 'color', 'theme', 'input', 'key', 'command',
+    'commandDone', 'submit', 'running', 'stream', 'followUp', 'release', 'quick', 'events', 'mark', 'marked',
+    'markerFound', 'waitScript', 'quit'].map(name => [name, join(directory, name)]));
+  const marker = randomBytes(8).toString('hex');
   const moduleUrl = path => JSON.stringify(pathToFileURL(path).href);
   const fixture = String.raw`
     import { existsSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -340,9 +448,23 @@ test('real Pi in Windows Terminal restores only its own minimized window without
         refresh: async () => { throw new Error('No refresh in tests'); },
         toAuth: async () => ({ apiKey: 'fixture-oauth-access' }),
       } } }));
-      faux.setResponses([fauxAssistantMessage('fixture answer'), fauxAssistantMessage('second fixture answer')]);
+      faux.setResponses(['first', 'second', 'interactive', 'steering', 'follow-up', 'quick'].map(text => fauxAssistantMessage(text + ' fixture answer')));
       let timer;
       let tui;
+      let lastInput = '';
+      const inputs = [];
+      function consume(path) {
+        try { unlinkSync(path); return true; }
+        catch (error) {
+          if (['ENOENT', 'EBUSY', 'EPERM'].includes(error.code)) return false;
+          throw error;
+        }
+      }
+      pi.on('input', event => {
+        lastInput = event.text;
+        inputs.push({ source: event.source, text: event.text, streamingBehavior: event.streamingBehavior ?? null });
+        writeFileSync(paths.events, JSON.stringify(inputs));
+      });
       pi.on('session_start', (_event, ctx) => {
         ctx.ui.setWidget('fixture-query', instance => {
           tui = instance;
@@ -351,44 +473,97 @@ test('real Pi in Windows Terminal restores only its own minimized window without
         process.stdout.write('\x1b]10;#aabbcc\x07\x1b]11;#1a2b3c\x07');
         writeFileSync(paths.ready, String(process.pid));
         timer = setInterval(() => {
-          if (existsSync(paths.go) && ctx.isIdle()) { unlinkSync(paths.go); pi.sendUserMessage('fixture request'); }
-          if (existsSync(paths.query)) {
-            unlinkSync(paths.query);
+          if (ctx.isIdle() && consume(paths.go)) pi.sendUserMessage('fixture request');
+          if (ctx.isIdle() && consume(paths.command)) {
+            ctx.ui.setEditorText('/session');
+            process.stdin.emit('data', Buffer.from('\r'));
+            setTimeout(() => writeFileSync(paths.commandDone, ctx.ui.getEditorText()), 100);
+          }
+          if (ctx.isIdle() && consume(paths.submit)) {
+            ctx.ui.setEditorText('interactive fixture request');
+            process.stdin.emit('data', Buffer.from('\r'));
+          }
+          if (consume(paths.stream)) {
+            ctx.ui.setEditorText('steering fixture request');
+            process.stdin.emit('data', Buffer.from('\r'));
+          }
+          if (consume(paths.followUp)) {
+            ctx.ui.setEditorText('follow-up fixture request');
+            process.stdin.emit('data', Buffer.from('\x11'));
+          }
+          if (ctx.isIdle() && consume(paths.quick)) {
+            ctx.ui.setEditorText('quick fixture request');
+            process.stdin.emit('data', Buffer.from('\r'));
+          }
+          if (consume(paths.mark)) {
+            ctx.ui.setWidget('fixture-marker', [${JSON.stringify(marker)}]);
+            writeFileSync(paths.marked, 'marked');
+          }
+          if (consume(paths.query)) {
             void tui.queryTerminalColors({ timeoutMs: 1000 }).then(colors => {
               writeFileSync(paths.theme, JSON.stringify({ appearance: ctx.ui.theme.appearance, text: ctx.ui.theme.colors.text, userMessageBg: ctx.ui.theme.colors.userMessageBg }));
               writeFileSync(paths.color, JSON.stringify(colors));
             });
           }
-          if (existsSync(paths.input)) {
-            unlinkSync(paths.input);
+          if (consume(paths.input)) {
             process.stdin.emit('data', Buffer.from('x'));
             setTimeout(() => writeFileSync(paths.key, ctx.ui.getEditorText()), 50);
           }
           if (existsSync(paths.quit)) { clearInterval(timer); ctx.shutdown(); }
         }, 100);
       });
-      pi.on('agent_settled', () => writeFileSync(paths.done, 'settled'));
+      pi.on('before_agent_start', async event => {
+        if (event.messageType !== 'user' || event.prompt !== 'interactive fixture request') return;
+        writeFileSync(paths.running, 'running');
+        while (!consume(paths.release)) await new Promise(resolve => setTimeout(resolve, 50));
+      });
+      pi.on('agent_settled', () => writeFileSync(paths.done, lastInput));
       pi.on('session_shutdown', () => { clearInterval(timer); });
     }
   `;
-  writeFileSync(join(agentDir, 'extensions/fixture.ts'), fixture);
+  writeFileSync(fixturePath, fixture);
+  const notifyPath = join(agentDir, 'extensions/notify.ts');
+  const loader = new sdk.DefaultResourceLoader({ cwd: root, agentDir,
+    settingsManager: sdk.SettingsManager.create(root, agentDir), additionalExtensionPaths: [notifyPath],
+    noSkills: true, noPromptTemplates: true });
+  await loader.reload();
+  const extensionPaths = loader.getExtensions().extensions.map(extension => extension.path);
+  assert.equal(extensionPaths.filter(path => path === notifyPath).length, 1);
+  assert.ok(extensionPaths.indexOf(notifyPath) < extensionPaths.indexOf(fixturePath));
   const pwsh = execFileSync('mise.exe', ['which', 'pwsh'], { encoding: 'utf8' }).trim();
   const assignments = { homePath: directory, agentDir, nodePath: process.execPath,
     cliPath: join(packageRoot, 'dist/bundle/cli.js'), pwshPath: pwsh,
     windowTitle: `pi-notify-test-${Date.now()}-${process.pid}`,
     readyPath: paths.ready, goPath: paths.go, donePath: paths.done, queryPath: paths.query,
-    colorPath: paths.color, themePath: paths.theme, inputPath: paths.input, keyPath: paths.key, quitPath: paths.quit };
+    colorPath: paths.color, themePath: paths.theme, inputPath: paths.input, keyPath: paths.key,
+    commandPath: paths.command, commandDonePath: paths.commandDone, submitPath: paths.submit,
+    runningPath: paths.running, streamPath: paths.stream, followUpPath: paths.followUp,
+    releasePath: paths.release, quickPath: paths.quick, eventsPath: paths.events, markPath: paths.mark, markedPath: paths.marked,
+    markerFoundPath: paths.markerFound, waitScriptPath: paths.waitScript, quitPath: paths.quit };
   const literal = value => "'" + value.replaceAll("'", "''") + "'";
+  const match = 'foreach ($value in $handles) { $handle = [IntPtr]::new($value) }';
+  const script = decode(windowCommand(marker, true).args);
+  assert.ok(script.includes(match));
+  writeFileSync(paths.waitScript, Buffer.from(script.replace(match,
+    `${match}\n[IO.File]::WriteAllText(${literal(paths.markerFound)}, 'found')`), 'utf16le').toString('base64'));
   const prefix = Object.entries(assignments).map(([name, value]) => `$${name} = ${literal(value)};`).join('\n');
-  const driver = prefix + '\n' + readFileSync(join(root, 'tests/support/notification-window.ps1'), 'utf8');
+  const driver = prefix + `\n& ([scriptblock]::Create([IO.File]::ReadAllText(${literal(join(root, 'tests/support/notification-window.ps1'))})))`;
   const encoded = Buffer.from(driver, 'utf16le').toString('base64');
   let result;
   try {
-    result = await promisify(execFile)('mise.exe', ['exec', '--', 'pwsh', '-NoProfile', '-NonInteractive', '-EncodedCommand', encoded],
-      { encoding: 'utf8', timeout: 90000 });
+    result = await promisify(execFile)('mise.exe', ['exec', '--', 'pwsh', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Restricted', '-EncodedCommand', encoded],
+      { encoding: 'utf8', timeout: 110000 });
   } catch (error) {
-    assert.fail(`driver failed: code=${error.code} killed=${error.killed} signal=${error.signal}\nstdout=${error.stdout}\nstderr=${error.stderr}`);
+    assert.fail(`driver failed in ${directory}: code=${error.code} killed=${error.killed} signal=${error.signal}\nstdout=${error.stdout}\nstderr=${error.stderr}`);
   }
-  assert.match(result.stdout, /restored only its own minimized window, did not activate it, and changed its background/);
+  assert.match(result.stdout, /minimized interactive prompts, preserved other windows, and restored without activation/);
+  assert.deepEqual(JSON.parse(readFileSync(paths.events, 'utf8')), [
+    { source: 'extension', text: 'fixture request', streamingBehavior: null },
+    { source: 'extension', text: 'fixture request', streamingBehavior: null },
+    { source: 'interactive', text: 'interactive fixture request', streamingBehavior: null },
+    { source: 'interactive', text: 'steering fixture request', streamingBehavior: 'steer' },
+    { source: 'interactive', text: 'follow-up fixture request', streamingBehavior: 'followUp' },
+    { source: 'interactive', text: 'quick fixture request', streamingBehavior: null },
+  ]);
   assert.equal(readFileSync(join(agentDir, 'settings.json'), 'utf8'), settings);
 });

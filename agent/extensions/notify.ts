@@ -47,7 +47,7 @@ try {
 `, 10000);
 }
 
-export function windowCommand(marker: string) {
+export function windowCommand(marker: string, waitForMinimize = false) {
   if (!/^[0-9a-f]{16}$/.test(marker)) throw new Error("Invalid window marker");
   return powerShellCommand(`
 Set-StrictMode -Version Latest
@@ -83,6 +83,12 @@ do {
     if ($handles.Count -gt 1) { throw 'Pi window marker is ambiguous.' }
     if ($handles.Count -eq 1) {
         foreach ($value in $handles) { $handle = [IntPtr]::new($value) }
+        ${waitForMinimize ? `
+        # Terminal processes the minimize sequence asynchronously. Wait for it before restoring.
+        $minimizeDeadline = [DateTime]::UtcNow.AddSeconds(2)
+        while (-not [PiWindow]::IsIconic($handle) -and [DateTime]::UtcNow -lt $minimizeDeadline) {
+            Start-Sleep -Milliseconds 50
+        }` : ""}
         if ([PiWindow]::IsIconic($handle)) {
             # Restore without activating or changing an already-visible window.
             [void][PiWindow]::ShowWindow($handle, 4)
@@ -105,14 +111,20 @@ function isUserInput(data: string) {
 
 export default function (pi: ExtensionAPI) {
   let ready: ReadyState | undefined;
+  let minimizePending = false;
   let unsubscribe: (() => void) | undefined;
 
-  function clearReady(ctx: ExtensionContext) {
+  function clearReady(ctx: ExtensionContext, cancelMinimize = false) {
     if (!ready) return;
     const state = ready;
     ready = undefined;
     state.cancelled = true;
     state.abort.abort();
+    if (cancelMinimize && minimizePending) {
+      // Cancel a minimize still queued by Windows Terminal when the user resumes typing.
+      process.stdout.write("\x1b[1t");
+      minimizePending = false;
+    }
     if (state.original) {
       process.stdout.write(`\x1b]10;${state.original.foreground}\x07\x1b]11;${state.original.background}\x07`);
       refreshAppearance(state.original.appearance);
@@ -123,9 +135,17 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", (_event, ctx) => {
     if (ctx.mode !== "tui" || process.platform !== "win32" || !process.env.WT_SESSION) return;
     unsubscribe = ctx.ui.onTerminalInput((data) => {
-      if (ready && isUserInput(data)) clearReady(ctx);
+      if (ready && isUserInput(data)) clearReady(ctx, true);
       return undefined;
     });
+  });
+
+  pi.on("input", (event, ctx) => {
+    if (ctx.mode === "tui" && process.platform === "win32" && process.env.WT_SESSION && event.source === "interactive") {
+      clearReady(ctx, true);
+      minimizePending = true;
+      process.stdout.write("\x1b[2t");
+    }
   });
 
   pi.on("agent_start", (_event, ctx) => clearReady(ctx));
@@ -169,13 +189,14 @@ export default function (pi: ExtensionAPI) {
       });
       tasks.push(colorTask);
 
-      const window = windowCommand(marker);
+      const window = windowCommand(marker, minimizePending);
       const windowTask = Promise.resolve().then(async () => {
         try {
           const result = await pi.exec(window.command, window.args, { ...window.options, signal: state.abort.signal });
           if (!state.cancelled && (result.code !== 0 || result.killed)) {
             throw new Error(`Pi window restore failed (${result.code}, killed=${result.killed}): ${result.stderr}`);
           }
+          if (ready === state) minimizePending = false;
         } catch (error) {
           if (!state.cancelled) throw error;
         } finally {
@@ -191,7 +212,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("session_shutdown", (_event, ctx) => {
-    clearReady(ctx);
+    clearReady(ctx, true);
     unsubscribe?.();
     unsubscribe = undefined;
   });
