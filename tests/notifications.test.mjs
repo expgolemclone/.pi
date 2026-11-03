@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { execFile, execFileSync, spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, cpSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { findPackageJSON } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import test, { after } from 'node:test';
@@ -10,6 +11,8 @@ import notifier, { soundCommand } from '../agent/extensions/notify.ts';
 import { aiRoot, packageRoot, sdk } from './support/pi-runtime.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
+const tuiManifest = findPackageJSON('@earendil-works/pi-tui', pathToFileURL(join(packageRoot, 'dist/index.js')));
+const { TuiMainScreen } = await import(pathToFileURL(join(dirname(tuiManifest), 'dist/index.js')));
 const soundPath = join(root, 'agent/sounds/ready.wav');
 mkdirSync('C:/dev/tmp', { recursive: true });
 const home = mkdtempSync('C:/dev/tmp/pi-notifications-test-');
@@ -45,8 +48,11 @@ function harness(t, exec = t.mock.fn(async () => success), extension = notifier)
   const windowWrites = [];
   const widgets = [];
   const appearances = [];
+  const notifications = [];
   let listener;
   let resolveColors;
+  let rejectColors;
+  let onLateReply;
   let removed = false;
   const write = process.stdout.write.bind(process.stdout);
   t.mock.method(process.stdout, 'write', (value, ...args) => {
@@ -63,9 +69,14 @@ function harness(t, exec = t.mock.fn(async () => success), extension = notifier)
   const ctx = { mode: 'tui', ui: {
     theme: { name: 'system', appearance: 'dark' },
     onTerminalInput: handler => { listener = handler; return () => { removed = true; }; },
+    notify: (message, level) => notifications.push([message, level]),
     setWidget: (key, value) => {
       if (typeof value === 'function') {
-        const component = value({ queryTerminalColors: () => new Promise(resolve => { resolveColors = resolve; }) });
+        const component = value({ queryTerminalColors: options => new Promise((resolve, reject) => {
+          resolveColors = resolve;
+          rejectColors = reject;
+          onLateReply = options.onLateReply;
+        }) });
         value = component.render(80);
       }
       widgets.push([key, value]);
@@ -73,7 +84,8 @@ function harness(t, exec = t.mock.fn(async () => success), extension = notifier)
   } };
   extension({ on: (name, handler) => handlers.set(name, handler), exec });
   assert.deepEqual([...handlers.keys()], ['session_start', 'input', 'agent_start', 'agent_settled', 'session_shutdown']);
-  return { handlers, ctx, exec, writes, minimizes, restores, windowWrites, widgets, appearances, replyColors: colors => resolveColors(colors),
+  return { handlers, ctx, exec, writes, minimizes, restores, windowWrites, widgets, appearances, notifications,
+    replyColors: colors => resolveColors(colors), rejectColors: error => rejectColors(error), lateReply: () => onLateReply,
     input: value => listener?.(value), removed: () => removed };
 }
 
@@ -275,29 +287,111 @@ test('immediate input after the white change restores colors in order', async t 
   shutdown(h);
 });
 
-test('sound and color errors remain visible without suppressing restoration', async t => {
+test('sound and query failures remain visible without suppressing window restoration', async t => {
   terminalEnvironment(t);
   const exec = t.mock.fn(async () => ({ ...success, code: 1, stderr: 'sound failure' }));
   const h = harness(t, exec);
   start(h);
-  const pending = settle(h);
+  let pending = settle(h);
+  h.rejectColors(new Error('query failure'));
+  await assert.rejects(pending, error => /sound failure/.test(error.message) && /query failure/.test(error.message));
+  h.input('x');
+  pending = settle(h);
   h.replyColors({});
-  await assert.rejects(pending, error => /sound failure/.test(error.message) && /Could not query/.test(error.message));
-  assert.equal(exec.mock.callCount(), 1);
-  assert.deepEqual(h.restores, ['\x1b[1t']);
+  await assert.rejects(pending, error => /sound failure/.test(error.message) && !/Could not query/.test(error.message));
+  assert.equal(exec.mock.callCount(), 2);
+  assert.deepEqual(h.restores, ['\x1b[1t', '\x1b[1t']);
   shutdown(h);
 });
 
-test('a missing color reply is reported without suppressing sound or window restoration', async t => {
+test('a missing or partial color reply leaves the terminal unchanged without an error', async t => {
+  terminalEnvironment(t);
+  const h = harness(t);
+  start(h);
+  for (const colors of [{}, { foreground: originalColors.foreground }, { background: originalColors.background }]) {
+    const pending = settle(h);
+    h.replyColors(colors);
+    await pending;
+    assert.deepEqual(h.widgets.at(-1), ['ready-window', undefined]);
+    assert.equal(h.input('x'), undefined);
+  }
+  assert.equal(h.exec.mock.callCount(), 3);
+  assert.deepEqual(h.restores, ['\x1b[1t', '\x1b[1t', '\x1b[1t']);
+  assert.deepEqual(h.writes, []);
+  assert.deepEqual(h.appearances, []);
+  assert.deepEqual(h.notifications, []);
+  shutdown(h);
+});
+
+test('a late complete color reply marks and restores the terminal exactly once', async t => {
   terminalEnvironment(t);
   const h = harness(t);
   start(h);
   const pending = settle(h);
+  h.replyColors({ foreground: originalColors.foreground });
+  await pending;
+  assert.deepEqual(h.writes, []);
+  const lateReply = h.lateReply();
+  assert.equal(typeof lateReply, 'function');
+  lateReply(originalColors);
+  lateReply(originalColors);
+  assert.deepEqual(h.writes, [readyWrite]);
+  assert.equal(h.input('x'), undefined);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(h.writes, [readyWrite, restoredWrite]);
+  assert.deepEqual(h.appearances, ['\x1b[?997;2n', '\x1b[?997;1n']);
+  shutdown(h);
+});
+
+test('the real Pi TUI applies a late partial color response and restores it on input', async t => {
+  terminalEnvironment(t);
+  const h = harness(t);
+  const terminalWrites = [];
+  let receive;
+  const terminal = {
+    columns: 80, rows: 24, kittyProtocolActive: false,
+    start: onInput => { receive = onInput; }, stop: () => {},
+    write: data => terminalWrites.push(data), hideCursor: () => {}, showCursor: () => {},
+  };
+  const tui = new TuiMainScreen(terminal);
+  tui.start();
+  t.after(() => tui.stop());
+  h.ctx.ui.onTerminalInput = handler => tui.addInputListener(handler);
+  h.ctx.ui.setWidget = (key, value) => {
+    if (typeof value === 'function') value = value(tui).render(80);
+    h.widgets.push([key, value]);
+  };
+  start(h);
+  const pending = settle(h);
+  assert.ok(terminalWrites.some(data => data.includes('\x1b]10;?\x07\x1b]11;?\x07')));
+  receive('\x1b]10;rgb:aaaa/bbbb/cccc\x07');
+  await pending;
+  assert.deepEqual(h.writes, []);
+  receive('\x1b]11;rgb:1111/2222/3333\x07');
+  receive('\x1b[?1;2c');
+  assert.deepEqual(h.writes, [readyWrite]);
+  receive('x');
+  assert.deepEqual(h.writes, [readyWrite, restoredWrite]);
+  shutdown(h);
+});
+
+test('late colors from an acknowledged run cannot change the next run', async t => {
+  terminalEnvironment(t);
+  const h = harness(t);
+  start(h);
+  const first = settle(h);
   h.replyColors({});
-  await assert.rejects(pending, /Could not query the terminal foreground and background colors/);
-  assert.equal(h.exec.mock.callCount(), 1);
-  assert.deepEqual(h.restores, ['\x1b[1t']);
-  assert.ok(!h.writes.includes(readyWrite));
+  await first;
+  const lateReply = h.lateReply();
+  assert.equal(typeof lateReply, 'function');
+  h.input('x');
+  const second = settle(h);
+  h.replyColors(originalColors);
+  await second;
+  lateReply(originalColors);
+  assert.deepEqual(h.writes, [readyWrite]);
+  h.input('y');
+  assert.deepEqual(h.writes, [readyWrite, restoredWrite]);
   shutdown(h);
 });
 
@@ -316,17 +410,28 @@ test('an existing light appearance is restored as light', async t => {
   shutdown(h);
 });
 
-test('a dark fixed theme is not made unreadable', async t => {
+test('a dark fixed theme is not made unreadable, including for a late reply', async t => {
   terminalEnvironment(t);
   const h = harness(t);
   h.ctx.ui.theme = { name: 'dark', appearance: 'dark' };
   start(h);
-  const pending = settle(h);
+  let pending = settle(h);
   h.replyColors(originalColors);
-  await assert.rejects(pending, /requires Pi's system or a light theme/);
-  assert.equal(h.exec.mock.callCount(), 1);
-  assert.deepEqual(h.restores, ['\x1b[1t']);
+  await pending;
+  h.lateReply()(originalColors);
+  h.input('x');
+  pending = settle(h);
+  h.replyColors({});
+  await pending;
+  h.lateReply()(originalColors);
+  h.lateReply()(originalColors);
+  assert.equal(h.exec.mock.callCount(), 2);
+  assert.deepEqual(h.restores, ['\x1b[1t', '\x1b[1t']);
   assert.deepEqual(h.writes, []);
+  assert.deepEqual(h.notifications, [
+    ["White completion background requires Pi's system or a light theme", 'warning'],
+    ["White completion background requires Pi's system or a light theme", 'warning'],
+  ]);
   shutdown(h);
 });
 

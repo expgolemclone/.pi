@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { TerminalColors } from "@earendil-works/pi-tui";
 
 const sound = fileURLToPath(new URL("../sounds/ready.wav", import.meta.url));
 const widget = "ready-window";
@@ -108,11 +109,14 @@ export default function (pi: ExtensionAPI) {
       const colorTask = new Promise<void>((resolve, reject) => {
         state.abort.signal.addEventListener("abort", () => resolve(), { once: true });
         ctx.ui.setWidget(widget, (tui) => {
-          void tui.queryTerminalColors({ timeoutMs: 1000 }).then(({ foreground, background }) => {
-            if (state.cancelled) return;
-            if (!foreground || !background) throw new Error("Could not query the terminal foreground and background colors");
+          let handled = false;
+          // A timeout can be followed by a late reply; never change colors we cannot restore.
+          const applyColors = ({ foreground, background }: TerminalColors) => {
+            if (state.cancelled || handled || !foreground || !background) return;
+            handled = true;
             if (ctx.ui.theme.appearance === "dark" && ctx.ui.theme.name !== "system") {
-              throw new Error("White completion background requires Pi's system or a light theme");
+              ctx.ui.notify("White completion background requires Pi's system or a light theme", "warning");
+              return;
             }
             state.original = {
               foreground: terminalColor(foreground),
@@ -121,7 +125,8 @@ export default function (pi: ExtensionAPI) {
             };
             process.stdout.write(`\x1b]10;#000000\x07\x1b]11;${readyColor}\x07`);
             refreshAppearance("light");
-          }).then(resolve, reject);
+          };
+          void tui.queryTerminalColors({ timeoutMs: 1000, onLateReply: applyColors }).then(applyColors).then(resolve, reject);
           return { render: () => [], invalidate: () => {} };
         });
       });
