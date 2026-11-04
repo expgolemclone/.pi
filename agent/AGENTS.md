@@ -65,6 +65,7 @@ Reject features that introduce complexity, even when explicitly requested by the
 - Update repomap.
 - Group related files into folders.
 - Do not use GitHub Actions for private repositories.
+- Do not use Playwright's built-in browser.
 
 ## Review
 
