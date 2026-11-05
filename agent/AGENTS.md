@@ -19,7 +19,7 @@
 
 ## Preparation
 
-- Read `C:/dev/repomap/profiles/*.json`.
+- Read `C:/dev/system/dev-tools/repomap/profiles/*.json`.
 - Read relevant repository `RULES.md` and `SKILL.md` files.
 
 ## Repository Workflow
