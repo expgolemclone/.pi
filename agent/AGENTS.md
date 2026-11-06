@@ -12,10 +12,13 @@
 
 ## Task Execution
 
-- When the user enters `plan`, only investigate and make proposals until they enter `do`.
-- Do not stop until all items in `PLAN.md` are complete.
 - Do not stop until all problems are resolved.
 - If blockers prevent completion, complete what you can and report the blockers.
+
+### plan
+
+- When the user enters `plan`, only investigate and make proposals until they enter `do`.
+- When the user enters `do`, write the finalized plan to `PLAN.md` and do not stop until all items are complete.
 
 ## Preparation
 
