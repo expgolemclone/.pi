@@ -18,7 +18,7 @@
 ### plan
 
 - When the user enters `plan`, only investigate and make proposals until they enter `do`.
-- When the user enters `do`, write the finalized plan to `PLAN.md` and do not stop until all items are complete.
+- When the user enters `do`, write the finalized plan to `PLAN.md`. without vcs.
 
 ## Preparation
 
