@@ -6,7 +6,6 @@
 !/agent/AGENTS.md
 !/agent/mcp.json
 !/agent/settings.json
-!/agent/models.json
 !/agent/sounds/
 /agent/sounds/*
 !/agent/sounds/ready.wav

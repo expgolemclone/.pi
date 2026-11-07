@@ -25,7 +25,8 @@ function fixture(t) {
   const agentDir = join(home, '.pi/agent');
   mkdirSync(join(agentDir, 'extensions'), { recursive: true });
   writeFileSync(join(agentDir, 'AGENTS.md'), '# Fixture instructions\n');
-  for (const file of ['settings.json', 'models.json']) cpSync(join(root, 'agent', file), join(agentDir, file));
+  cpSync(join(root, 'agent/settings.json'), join(agentDir, 'settings.json'));
+  if (existsSync(join(root, 'agent/models.json'))) cpSync(join(root, 'agent/models.json'), join(agentDir, 'models.json'));
   writeFileSync(join(agentDir, 'settings.json'), JSON.stringify({ ...config, extensions: [],
     enableInstallTelemetry: false, cacheWarming: 'off', defaultProjectTrust: 'never' }));
   writeFileSync(join(agentDir, 'auth.json'), JSON.stringify({ openai: {
@@ -95,7 +96,7 @@ test('real CLI preserves the model and thinking restored from a session', t => {
   assert.match(f.run([], manager.getSessionFile()).stderr, /selection:alternate:low/);
 });
 
-test('native model sampling parameters keep priority for normal and custom-compaction OAuth requests', async t => {
+test('normal and custom-compaction OAuth requests do not opt in to a service tier', async t => {
   const f = fixture(t);
   cpSync(join(sdk.getAgentDir(), 'models-store.json'), join(f.agentDir, 'models-store.json'));
   const bodies = [];
@@ -123,17 +124,19 @@ test('native model sampling parameters keep priority for normal and custom-compa
   const model = registry.find(config.defaultProvider, config.defaultModel);
   assert.ok(model);
   assert.equal((await registry.getApiKeyAndHeaders(model)).apiKey, 'fixture-oauth-access');
-  assert.equal(model.samplingParams.service_tier, 'priority');
-  const response = await registry.streamSimple(model, {
-    systemPrompt: 'Normal agent prompt', messages: [{ role: 'user', content: 'fixture request', timestamp: 1 }],
-  }, { reasoning: 'off', maxRetries: 0 }).result();
-  assert.equal(response.stopReason, 'stop', response.errorMessage);
-  assert.equal(bodies.length, 1);
-  assert.equal(bodies[0].service_tier, 'priority');
+  assert.equal(model.samplingParams?.service_tier, undefined);
+  for (const reasoning of ['off', config.defaultThinkingLevel]) {
+    const response = await registry.streamSimple(model, {
+      systemPrompt: 'Normal agent prompt', messages: [{ role: 'user', content: 'fixture request', timestamp: 1 }],
+    }, { reasoning, maxRetries: 0 }).result();
+    assert.equal(response.stopReason, 'stop', response.errorMessage);
+    assert.equal(Object.hasOwn(bodies.at(-1), 'service_tier'), false);
+  }
+  assert.equal(bodies.length, 2);
 
   const loaded = await loadExtensions([join(root, 'agent/extensions/custom-compaction/index.ts')], f.home);
   assert.deepEqual(loaded.errors, []);
-  loaded.runtime.getThinkingLevel = () => 'off';
+  loaded.runtime.getThinkingLevel = () => config.defaultThinkingLevel;
   const handler = loaded.extensions[0].handlers.get('session_before_compact')[0];
   const preparation = { messagesToSummarize: [{ role: 'user', content: 'old task', timestamp: 1 }],
     turnPrefixMessages: [], firstKeptEntryId: 'keep', tokensBefore: 5000, settings: { reserveTokens: 0 } };
@@ -143,9 +146,9 @@ test('native model sampling parameters keep priority for normal and custom-compa
     const result = await handler({ preparation, reason, signal: new AbortController().signal }, ctx);
     assert.equal(result.compaction.summary, 'fixture checkpoint');
     assert.equal(result.compaction.usage.totalTokens, 30);
-    assert.equal(bodies.at(-1).service_tier, 'priority');
+    assert.equal(Object.hasOwn(bodies.at(-1), 'service_tier'), false);
     const instruction = bodies.at(-1).input.find(item => item.role === 'developer' || item.role === 'system');
     assert.equal(instruction.content, prompt);
   }
-  assert.equal(bodies.length, 4);
+  assert.equal(bodies.length, 5);
 });

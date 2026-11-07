@@ -18,7 +18,7 @@ mkdirSync('C:/dev/tmp', { recursive: true });
 const home = mkdtempSync('C:/dev/tmp/pi-notifications-test-');
 after(() => rmSync(home, { recursive: true, force: true }));
 const piRoot = join(home, '.pi');
-for (const path of ['agent/AGENTS.md', 'agent/mcp.json', 'agent/settings.json', 'agent/models.json',
+for (const path of ['agent/AGENTS.md', 'agent/mcp.json', 'agent/settings.json',
   'agent/sounds', 'agent/extensions/custom-compaction', 'agent/extensions/notify.ts']) {
   mkdirSync(dirname(join(piRoot, path)), { recursive: true });
   cpSync(join(root, path), join(piRoot, path), { recursive: true });
@@ -474,7 +474,6 @@ test('real Pi restores the correct Windows Terminal even from an inactive tab', 
   mkdirSync(join(agentDir, 'extensions'), { recursive: true });
   cpSync(join(root, 'agent/extensions/notify.ts'), join(agentDir, 'extensions/notify.ts'));
   cpSync(join(root, 'agent/sounds'), join(agentDir, 'sounds'), { recursive: true });
-  cpSync(join(root, 'agent/models.json'), join(agentDir, 'models.json'));
   const config = JSON.parse(readFileSync(join(root, 'agent/settings.json'), 'utf8'));
   const fixturePath = join(directory, 'fixture.ts');
   const settings = JSON.stringify({ ...config, extensions: [fixturePath],
