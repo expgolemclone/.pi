@@ -14,7 +14,7 @@
   ],
   "defaultProvider": "openai",
   "defaultModel": "gpt-6.1-sol",
-  "hideThinkingBlock": false,
+  "hideThinkingBlock": true,
   "defaultThinkingLevel": "max",
   "lastChangelogVersion": "1.5.2",
   "deviceId": "e72c129f-1c9d-4186-9d0f-45013cb02137"
