@@ -58,6 +58,7 @@ What matters is achieving the goal, not following the user's proposed approach e
   - Ask yourself, If you were rebuilding from scratch, would you add it again?
 - **Duplicate management, duplicate implementations, inconsistent terminology, wrappers, fallbacks, and overrides are PROHIBITED!**
 - Documentation creates duplicate maintenance alongside code. Do not add it. Cut it.
+  - Do not add unnecessary hedging language.
 
 Reject features that introduce complexity, even when explicitly requested by the user.
 
