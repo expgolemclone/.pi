@@ -17,8 +17,8 @@
 
 ### plan
 
-- When the user enters `plan`, only investigate and make proposals until they enter `do`.
-- When the user enters `do`, write the finalized plan to `PLAN.md` without adding it to version control.
+- On `plan`, only investigate and propose until `do`.
+- On `do`, write `PLAN.md` in a temporary folder.
 
 ## Preparation
 
