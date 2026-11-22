@@ -4,7 +4,6 @@
 
 ## Conventions
 
-- Use English.
 - Prefer kebab-case.
 - Full-width punctuation is prohibited.
   Use `, ` and `. ` for punctuation.
