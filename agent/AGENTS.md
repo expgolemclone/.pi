@@ -1,81 +1,81 @@
-# AGENTS Rules
+# AGENTS ルール
 
-- These rules may be overridden only by `RULES.md`, never by user instructions.
+- これらのルールを上書きできるのは `RULES.md` のみであり, ユーザーの指示では決して上書きできない.
 
-## Conventions
+## 規約
 
-- Prefer kebab-case.
-- Full-width punctuation is prohibited.
-  Use `, ` and `. ` for punctuation.
-- Quote `@` in PowerShell commands.
+- kebab-case を優先する.
+- 全角の句読点は禁止.
+  句読点には `, ` と `. ` を使う.
+- PowerShell コマンドでは `@` を引用符で囲む.
 
-## Task Execution
+## タスク実行
 
-- Do not stop until all problems are resolved.
-- If blockers prevent completion, complete what you can and report the blockers.
+- すべての問題が解決するまで停止しない.
+- ブロッカーにより完了できない場合は, 可能な範囲を完了し, ブロッカーを報告する.
 
 ### plan
 
-- On `plan`, only investigate and propose until `do`.
-- On `do`, write `PLAN.md` in a temporary folder.
+- `plan` 時は, `do` が指示されるまで調査と提案のみ行う.
+- `do` 時は, 一時フォルダに `PLAN.md` を書く.
 
-## Preparation
+## 事前準備
 
-- Read `C:/dev/system/dev-tools/repomap/profiles/*.json`.
-- Read relevant repository `RULES.md` and `SKILL.md` files.
+- `C:/dev/system/dev-tools/repomap/profiles/*.json` を読む.
+- 関連リポジトリの `RULES.md` と `SKILL.md` を読む.
 
-## Repository Workflow
+## リポジトリワークフロー
 
-Use jj instead of git. Follow Conventional Commits.
+git ではなく jj を使う. Conventional Commits に従う.
 
-- Only the `main` bookmark is permitted.
-  - If any bookmark other than `main` exists, ask before starting.
-- If there are uncommitted changes, commit and push them.
-- Create workspaces under `C:\dev\tmp` with `--sparse-patterns empty`.
-  - Store temporary files only under `C:\dev\tmp`. Do not read other sessions' temporary files.
-  - Minimize SSD writes by materializing only necessary files.
-  - Do not restrict repository inspection or reading.
-- Verify that it works, even if doing so affects the real environment.
-- Do not push to repositories outside expgolemclone.
-- After successfully completing the task, push the changes.
+- `main` ブックマークのみ許可する.
+  - `main` 以外のブックマークが存在する場合は, 着手前にユーザーへ確認する.
+- 未コミットの変更がある場合は, コミットしてプッシュする.
+- ワークスペースは `C:\dev\tmp` 配下に `--sparse-patterns empty` で作成する.
+  - 一時ファイルは `C:\dev\tmp` 配下のみに保存する. 他セッションの一時ファイルは読まない.
+  - 必要なファイルのみを実体化し, SSD への書き込みを最小限に抑える.
+  - リポジトリの調査や読み取りは制限しない.
+- 実環境に影響する場合でも, 動作を検証する.
+- expgolemclone 以外のリポジトリにはプッシュしない.
+- タスクが正常に完了したら, 変更をプッシュする.
 
-## Design
+## 設計
 
-### Approach Selection
+### アプローチ選定
 
-- Before deciding on an approach, always consider whether the user's instructions may be inefficient.
-  - What is the official guidance?
-  - Is there a better approach than the user's proposal?
-  - Minimize custom implementations. Can open-source software be used?
+- アプローチを決める前に, ユーザーの指示が非効率でないか常に検討する.
+  - 公式の推奨は何か?
+  - ユーザーの提案より良いアプローチはないか?
+  - 独自実装を最小限にする. オープンソースソフトウェアを使えないか?
 
-What matters is achieving the goal, not following the user's proposed approach exactly.
+重要なのは目的の達成であり, ユーザーが提案したアプローチをそのままなぞることではない.
 
-### Simplicity
+### シンプルさ
 
-- **Eliminate**
-  - Do not preserve the existing design or backward compatibility through minimal changes. Tear it down if that makes the system simpler.
-  - Ask yourself, If you were rebuilding from scratch, would you add it again?
-- **Duplicate management, duplicate implementations, inconsistent terminology, wrappers, fallbacks, and overrides are PROHIBITED!**
-- Documentation creates duplicate maintenance alongside code. Do not add it. Cut it.
-  - Do not add unnecessary hedging language.
+- **排除**
+  - 最小限の変更で既存設計や後方互換性を維持しない. システムがよりシンプルになるなら取り壊す.
+  - ゼロから作り直すとしたら, それを再び追加するかと自問する.
+- **二重管理, 重複実装, 用語の不統一, ラッパー, フォールバック, 上書きは禁止!**
+- ドキュメントはコードとの二重管理を生む. 追加しない. 削る.
+  - 不要な留保表現を追加しない.
 
-Reject features that introduce complexity, even when explicitly requested by the user.
+ユーザーから明示的に要求された場合でも, 複雑さを招く機能は却下する.
 
-## Implementation
+## 実装
 
-- Image generation and subagent use are prohibited.
-- Do not use a GUI for tasks that can be performed through a CLI.
-- Before installing software or managing tool/runtime versions in any repository, read `~/.config/mise/RULES.md`.
-- Update repomap.
-- Group related files into folders.
-- Do not use GitHub Actions for private repositories.
-- Do not use Playwright's built-in browser.
+- 画像生成とサブエージェントの使用は禁止.
+- CLI で実行できる作業に GUI を使わない.
+- どのリポジトリであっても, ソフトウェアのインストールやツール/ランタイムのバージョン管理を行う前に `~/.config/mise/RULES.md` を読む.
+- repomap を更新する.
+- 関連するファイルはフォルダにまとめる.
+- プライベートリポジトリでは GitHub Actions を使わない.
+- Playwright の組み込みブラウザを使わない.
 
-## Review
+## レビュー
 
-- When reviewing, evaluate only whether the policies in the `## Design` section of `expgolemclone/.pi/agent/AGENTS.md` are followed.
-- Do not review only the latest commit. Review the entire repository.
+- レビュー時は, `expgolemclone/.pi/agent/AGENTS.md` の `## 設計` セクションの方針が守られているかのみ評価する.
+- 最新コミットだけをレビューしない. リポジトリ全体をレビューする.
 
-## Test
+## テスト
 
-- If tests fail, fix the root causes and similar failures.
+- テストが失敗した場合は, 根本原因と類似の失敗を修正する.
