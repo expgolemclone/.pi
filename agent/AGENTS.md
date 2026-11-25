@@ -14,30 +14,29 @@
 - すべての問題が解決するまで停止しない.
 - blocker により完了できない場合は, 可能な範囲を完了し, blocker を報告する.
 
-### plan
+### `plan` と `do`
 
 - `plan` 時は, `do` が指示されるまで調査と提案のみ行う.
-- `do` 時は, workspaceに `PLAN.md` を書く.
+- `do` 時は, workspace に `PLAN.md` を書く.
 
 ## 事前準備
 
 - `C:/dev/system/dev-tools/repomap/profiles/*.json` を読む.
 - 関連 repository の `RULES.md` と `SKILL.md` を読む.
 
-## Repository Workflow
+## repository 運用
 
-git ではなく jj を使う. Conventional Commits に従う.
-
+- git ではなく jj を使う. Conventional Commits に従う.
 - `main` bookmark のみ許可する.
   - `main` 以外の bookmark が存在する場合は, 着手前にユーザーへ確認する.
 - commit していない変更がある場合は, commit して push する.
-- workspace は `C:\dev\tmp` 配下に `--sparse-patterns empty` で作成する.
-  - 一時ファイルは `C:\dev\tmp` 配下のみに保存する. 他の session の一時ファイルは読まない.
+- workspace は `C:/dev/tmp` 配下に `--sparse-patterns empty` で作成する.
+  - 一時ファイルは `C:/dev/tmp` 配下のみに保存する. 他の session の一時ファイルは読まない.
   - 必要なファイルのみを実体化し, SSD への書き込みを最小限に抑える.
   - repository の調査や読み取りは制限しない.
 - 実環境に影響する場合でも, 動作を検証する.
 - タスクが正常に完了したら, 変更を push する.
-  - expgolemclone 以外の repository には push しない.
+- expgolemclone 以外の repository には push しない.
 
 ## 設計
 
@@ -52,12 +51,12 @@ git ではなく jj を使う. Conventional Commits に従う.
 
 ### シンプルさ
 
-- **排除**
-  - 最小限の変更に拘らない. 既存設計や後方互換性に執着しない. システムがよりシンプルになるなら変更する.
-  - ゼロから作り直すとしたら, それを再び追加するかと自問する.
-- **二重管理, 重複実装, 用語の不統一, wrapper, fallback, override は禁止!**
+- 最小限の変更にこだわらない. 既存設計や後方互換性に執着しない. システムがよりシンプルになるなら変更する.
+- ゼロから作り直すとしたら, それを再び追加するかと自問する.
+- 機能を廃止する場合は, ファイルや設定を残さずすべて消す.
+- 二重管理, 重複実装, 用語の不統一, wrapper, fallback, override は禁止.
 - ドキュメントはコードとの二重管理を生む. 追加しない. 削る.
-  - 不要な留保表現を追加しない.
+  - リスクヘッジのためのドキュメントを追加しない.
 
 ユーザーから明示的に要求された場合でも, 複雑さを招く機能は却下する.
 
@@ -65,15 +64,15 @@ git ではなく jj を使う. Conventional Commits に従う.
 
 - 画像生成と subagent の使用は禁止.
 - CLI で実行できる作業に GUI を使わない.
-- どの repository であっても, ソフトウェアのインストールや tool/runtime のバージョン管理を行う前に `~/.config/mise/RULES.md` を読む.
+- どの repository であっても, software の install や tool/runtime の version 管理を行う前に `~/.config/mise/RULES.md` を読む.
 - repomap を更新する.
-- 関連するファイルはフォルダにまとめる.
+- 関連するファイルは directory にまとめる.
 - private repository では GitHub Actions を使わない.
 - Playwright の組み込みブラウザを使わない.
 
 ## レビュー
 
-- レビュー時は, `expgolemclone/.pi/agent/AGENTS.md` の `## 設計` セクションの方針が守られているかのみ評価する.
+- レビュー時は, `## 設計` セクションの方針が守られているかのみ評価する.
 - 最新の commit だけをレビューしない. repository 全体をレビューする.
 
 ## テスト
