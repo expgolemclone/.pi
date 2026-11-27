@@ -7,7 +7,6 @@
 - kebab-case をなるべく使う.
 - 全角の記号は禁止.
   句読点には `, ` と `. ` を使う.
-- PowerShell コマンドでは `@` を引用符で囲む.
 
 ## タスク実行
 
@@ -21,19 +20,17 @@
 
 ## 事前準備
 
-- `C:/dev/system/dev-tools/repomap/profiles/*.json` を読む.
+- `expgolemclone/repomap/profiles/*.json` を読む.
 - 関連 repository の `RULES.md` と `SKILL.md` を読む.
 
 ## repository 運用
 
 - git ではなく jj を使う. Conventional Commits に従う.
 - `main` bookmark のみ許可する.
-  - `main` 以外の bookmark が存在する場合は, 着手前にユーザーへ確認する.
 - commit していない変更がある場合は, commit して push する.
 - workspace は `C:/dev/tmp` 配下に `--sparse-patterns empty` で作成する.
   - 一時ファイルは `C:/dev/tmp` 配下のみに保存する. 他の session の一時ファイルは読まない.
   - 必要なファイルのみを実体化し, SSD への書き込みを最小限に抑える.
-  - repository の調査や読み取りは制限しない.
 - 実環境に影響する場合でも, 動作を検証する.
 - タスクが正常に完了したら, 変更を push する.
 - expgolemclone 以外の repository には push しない.
@@ -63,18 +60,8 @@
 ## 実装
 
 - 画像生成と subagent の使用は禁止.
-- CLI で実行できる作業に GUI を使わない.
-- どの repository であっても, software の install や tool/runtime の version 管理を行う前に `~/.config/mise/RULES.md` を読む.
-- repomap を更新する.
+- GUI操作はuserの明示的な許可がないと禁止. 許可されたとしても, CLI で実行できる作業に GUI を使わない.
+- software の install や tool/runtime の version 管理を行う前に `~/.config/mise/RULES.md` を読む.
 - 関連するファイルは directory にまとめる.
 - private repository では GitHub Actions を使わない.
 - Playwright の組み込みブラウザを使わない.
-
-## レビュー
-
-- レビュー時は, `## 設計` セクションの方針が守られているかのみ評価する.
-- 最新の commit だけをレビューしない. repository 全体をレビューする.
-
-## テスト
-
-- テストが失敗した場合は, 根本原因と類似の失敗を修正する.
