@@ -60,8 +60,9 @@
 ## 実装
 
 - 画像生成と subagent の使用は禁止.
-- GUI操作はuserの明示的な許可がないと禁止. 許可されたとしても, CLI で実行できる作業に GUI を使わない.
-- OS レベルの GUI 自動化 (UI Automation, SendKeys, マウス/キーボード擬似入力等) は禁止.
+- GUI 操作はコンテキストを多く消費するため, ユーザーが明示的に許可した場合に限る.
+  - 許可があっても, CLI で実行できる作業には GUI を使わない.
+  - OS レベルの GUI 自動化 (UI Automation, SendKeys, マウスやキーボードの擬似入力など) は常に禁止する.
 - software の install や tool/runtime の version 管理を行う前に `~/.config/mise/RULES.md` を読む.
 - 関連するファイルは directory にまとめる.
 - private repository では GitHub Actions を使わない.
