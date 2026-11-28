@@ -26,6 +26,7 @@
 - expgolemclone 以外の repository には push しない.
 - 作業開始時に commit していない変更がある場合は, commit して push する.
 - private repository では GitHub Actions を使わない.
+- repomapで管理する.
 
 ## 設計
 
